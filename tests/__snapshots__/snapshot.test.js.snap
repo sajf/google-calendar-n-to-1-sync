@@ -1,0 +1,84 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Snapshot Tests Event Data Structures should match complex event map snapshot 1`] = `
+[
+  {
+    "extendedProperties": {
+      "private": {
+        "SYNC_KEY": "source1:original1",
+        "SYNC_SOURCE": "source1",
+      },
+    },
+    "id": "event1",
+    "status": "confirmed",
+    "summary": "Event 1",
+    "updated": "2023-01-01T00:00:00.000Z",
+  },
+  {
+    "extendedProperties": {
+      "private": {
+        "SYNC_KEY": "source2:original2",
+        "SYNC_SOURCE": "source2",
+      },
+    },
+    "id": "event2",
+    "status": "confirmed",
+    "summary": "Event 2",
+    "updated": "2023-01-01T00:00:00.000Z",
+  },
+]
+`;
+
+exports[`Snapshot Tests Event Data Structures should match event payload snapshot 1`] = `
+{
+  "attendees": [
+    {
+      "email": "user1@test.com",
+      "responseStatus": "accepted",
+    },
+    {
+      "email": "user2@test.com",
+      "responseStatus": "needsAction",
+    },
+  ],
+  "description": "Test Description",
+  "end": {
+    "dateTime": "2023-01-01T11:00:00Z",
+  },
+  "id": "event123",
+  "location": "Test Location",
+  "reminders": {
+    "overrides": [
+      {
+        "method": "email",
+        "minutes": 15,
+      },
+      {
+        "method": "popup",
+        "minutes": 10,
+      },
+    ],
+    "useDefault": false,
+  },
+  "start": {
+    "dateTime": "2023-01-01T10:00:00Z",
+  },
+  "summary": "Test Event",
+}
+`;
+
+exports[`Snapshot Tests Event Data Structures should match sync event payload snapshot 1`] = `
+{
+  "extendedProperties": {
+    "private": {
+      "SYNC_KEY": "source@cal.com:original123",
+      "SYNC_ORIGINAL_ID": "original123",
+      "SYNC_SOURCE": "source@cal.com",
+    },
+  },
+  "id": "sync123",
+  "status": "confirmed",
+  "summary": "Synced Event",
+  "updated": "2023-01-01T00:00:00.000Z",
+}
+`;
