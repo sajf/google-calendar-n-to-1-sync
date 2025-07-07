@@ -1,3 +1,4 @@
+
 /**
  * @fileoverview Utility functions for Calendar Sync script.
  * These functions handle data manipulation, API calls, and payload creation.
@@ -45,8 +46,13 @@ function generateSyncKey(event, sourceCalendarId) {
     return `${sourceCalendarId}:${event.id}`;
 }
 
+function generateSyncVersion() {
+    return Date.now().toString();
+}
+
 function _buildEventPayload(sourceEvent, sourceCalendarId) {
     const syncKey = generateSyncKey(sourceEvent, sourceCalendarId);
+    const syncVersion = generateSyncVersion();
     const eventData = {
         summary: sourceEvent.summary,
         description: sourceEvent.description,
@@ -61,7 +67,9 @@ function _buildEventPayload(sourceEvent, sourceCalendarId) {
             private: {
                 SYNC_KEY: syncKey,
                 SYNC_SOURCE: sourceCalendarId,
-                SYNC_ORIGINAL_ID: sourceEvent.id
+                SYNC_ORIGINAL_ID: sourceEvent.id,
+                SYNC_VERSION: syncVersion,
+                SYNC_UPDATED: new Date().toISOString()
             }
         }
     };
@@ -79,7 +87,12 @@ function _buildSourceEventPayload(targetEvent) {
         attendees: targetEvent.attendees,
         reminders: targetEvent.reminders,
         transparency: targetEvent.transparency,
-        visibility: targetEvent.visibility
+        visibility: targetEvent.visibility,
+        extendedProperties: {
+            private: {
+                SYNC_UPDATED: new Date().toISOString()
+            }
+        }
     };
     Object.keys(eventData).forEach(key => (eventData[key] === undefined) && delete eventData[key]);
     return eventData;
@@ -140,7 +153,6 @@ function createOrUpdateSyncedEvent(sourceEvent, targetCalendarId, sourceCalendar
     }
 }
 
-
 function updateSyncedEvent(sourceEvent, targetCalendarId, targetEventId, sourceCalendarId) {
     const eventData = _buildEventPayload(sourceEvent, sourceCalendarId);
     return Calendar.Events.update(eventData, targetCalendarId, targetEventId);
@@ -163,16 +175,49 @@ function deleteEvent(calendarId, eventId) {
     }
 }
 
+/**
+ * Checks if two events are in a potential sync loop based on their sync metadata
+ */
+function isInSyncLoop(event1, event2) {
+    const sync1 = event1.extendedProperties?.private;
+    const sync2 = event2.extendedProperties?.private;
+
+    if (!sync1 || !sync2) return false;
+
+    // Check if both events were updated recently (within 5 minutes)
+    const updated1 = new Date(sync1.SYNC_UPDATED || event1.updated);
+    const updated2 = new Date(sync2.SYNC_UPDATED || event2.updated);
+    const timeDiff = Math.abs(updated1.getTime() - updated2.getTime());
+
+    return timeDiff < 300000; // 5 minutes
+}
+
+/**
+ * Gets the sync metadata from an event
+ */
+function getSyncMetadata(event) {
+    return {
+        syncKey: event.extendedProperties?.private?.SYNC_KEY,
+        syncSource: event.extendedProperties?.private?.SYNC_SOURCE,
+        syncOriginalId: event.extendedProperties?.private?.SYNC_ORIGINAL_ID,
+        syncVersion: event.extendedProperties?.private?.SYNC_VERSION,
+        syncUpdated: event.extendedProperties?.private?.SYNC_UPDATED
+    };
+}
+
 // For Node.js testing environment
 if (typeof module !== 'undefined') {
     module.exports = {
         getAllEventsIncludingDeleted,
         createEventMapForSource,
         generateSyncKey,
+        generateSyncVersion,
         createSyncedEvent,
         updateSyncedEvent,
         updateSourceEvent,
         deleteEvent,
-        createOrUpdateSyncedEvent
+        createOrUpdateSyncedEvent,
+        isInSyncLoop,
+        getSyncMetadata
     };
 }

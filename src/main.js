@@ -21,6 +21,13 @@ function runNto1Sync() {
 
         console.log('Starting N->1 synchronization...');
 
+        // Get sync state manager for loop detection
+        const syncStateManager = getSyncStateManager();
+
+        // Log sync statistics
+        const stats = syncStateManager.getSyncStats();
+        console.log(`Sync stats - Total ops: ${stats.totalOperations}, Recent ops: ${stats.recentOperations}, Potential loops: ${stats.potentialLoops}`);
+
         const allTargetEvents = getAllEventsIncludingDeleted(TARGET_CALENDAR_ID, startDate, endDate);
 
         // PART 1: Synchronization from sources to target (N -> 1)
@@ -47,23 +54,45 @@ function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEve
     console.log(`Processing: ${sourceId} -> ${targetId}`);
     const sourceEvents = getAllEventsIncludingDeleted(sourceId, startDate, endDate);
     const targetEventMap = createEventMapForSource(allTargetEvents, sourceId);
+    const syncStateManager = getSyncStateManager();
 
     sourceEvents.forEach(sourceEvent => {
         const expectedSyncKey = generateSyncKey(sourceEvent, sourceId);
         const targetEvent = targetEventMap[expectedSyncKey];
 
+        // Check for potential loops before processing
+        if (syncStateManager.wouldCreateLoop(sourceId, targetId, sourceEvent.id, 'update')) {
+            console.log(`Skipping sync to prevent loop: ${sourceEvent.summary} (${sourceId} -> ${targetId})`);
+            return;
+        }
+
         if (sourceEvent.status === 'cancelled') {
             if (targetEvent && targetEvent.status !== 'cancelled') {
+                // Record the delete operation
+                syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'delete');
                 deleteEvent(targetId, targetEvent.id);
                 console.log(`DELETED in target: "${sourceEvent.summary || ''}" (from ${sourceId})`);
             }
         } else if (!targetEvent) {
-            createOrUpdateSyncedEvent(sourceEvent, targetId, sourceId);
+            // Record the create operation
+            syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'create');
+            createOrUpdateSyncedEvent(sourceEvent, targetId, sourceId, allTargetEvents);
             console.log(`CREATED in target: "${sourceEvent.summary}" (from ${sourceId})`);
         } else {
             const sourceUpdated = new Date(sourceEvent.updated);
             const targetUpdated = new Date(targetEvent.updated);
+
+            // Check if we should skip this sync to prevent loops
+            if (syncStateManager.shouldSkipSync(sourceId, targetId, sourceEvent.id, sourceUpdated, targetUpdated)) {
+                return;
+            }
+
             if (sourceUpdated > targetUpdated) {
+                // Record the update operation
+                syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'update', {
+                    sourceUpdated: sourceUpdated.toISOString(),
+                    targetUpdated: targetUpdated.toISOString()
+                });
                 updateSyncedEvent(sourceEvent, targetId, targetEvent.id, sourceId);
                 console.log(`UPDATED in target: "${sourceEvent.summary}" (from ${sourceId})`);
             }
@@ -76,6 +105,7 @@ function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEve
  */
 function syncTargetToSources(targetId, sourceIds, targetEvents) {
     console.log(`Processing reverse synchronization: ${targetId} -> Sources`);
+    const syncStateManager = getSyncStateManager();
 
     targetEvents.forEach(targetEvent => {
         try {
@@ -84,23 +114,59 @@ function syncTargetToSources(targetId, sourceIds, targetEvents) {
 
             if (!sourceCalendarId || !originalEventId || !sourceIds.includes(sourceCalendarId)) return;
 
+            // Check for potential loops before processing
+            if (syncStateManager.wouldCreateLoop(targetId, sourceCalendarId, originalEventId, 'update')) {
+                console.log(`Skipping reverse sync to prevent loop: ${targetEvent.summary} (${targetId} -> ${sourceCalendarId})`);
+                return;
+            }
+
             let originalEvent;
-            try { originalEvent = Calendar.Events.get(sourceCalendarId, originalEventId); }
-            catch (e) { if (e.message.includes('Not Found')) { if (targetEvent.status !== 'cancelled') deleteEvent(targetId, targetEvent.id); return; } throw e; }
+            try {
+                originalEvent = Calendar.Events.get(sourceCalendarId, originalEventId);
+            } catch (e) {
+                if (e.message.includes('Not Found')) {
+                    if (targetEvent.status !== 'cancelled') {
+                        syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'delete');
+                        deleteEvent(targetId, targetEvent.id);
+                    }
+                    return;
+                }
+                throw e;
+            }
 
             if (targetEvent.status === 'cancelled') {
                 if (originalEvent.status !== 'cancelled') {
+                    // Record the delete operation
+                    syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'delete');
                     deleteEvent(sourceCalendarId, originalEventId);
                     console.log(`DELETED in source: "${originalEvent.summary}" (in ${sourceCalendarId})`);
                 }
             } else {
                 const targetUpdated = new Date(targetEvent.updated);
                 const originalUpdated = new Date(originalEvent.updated);
+
+                // Check if we should skip this sync to prevent loops
+                if (syncStateManager.shouldSkipSync(targetId, sourceCalendarId, originalEventId, targetUpdated, originalUpdated)) {
+                    return;
+                }
+
                 if (targetUpdated > originalUpdated) {
+                    // Record the update operation
+                    syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'update', {
+                        targetUpdated: targetUpdated.toISOString(),
+                        originalUpdated: originalUpdated.toISOString()
+                    });
+
                     const updatedSourceEvent = updateSourceEvent(targetEvent, sourceCalendarId, originalEventId);
                     console.log(`UPDATED in source: "${targetEvent.summary}" (in ${sourceCalendarId})`);
+
                     if (updatedSourceEvent) {
-                        Calendar.Events.patch({ summary: targetEvent.summary }, targetId, targetEvent.id);
+                        // Add a small delay to ensure different timestamps
+                        Utilities.sleep(100);
+                        Calendar.Events.patch({
+                            summary: targetEvent.summary,
+                            extendedProperties: targetEvent.extendedProperties
+                        }, targetId, targetEvent.id);
                         console.log(`   -> "Touch" target event to unify update time.`);
                     }
                 }
@@ -110,7 +176,6 @@ function syncTargetToSources(targetId, sourceIds, targetEvents) {
         }
     });
 }
-
 
 // --- USER MANAGEMENT FUNCTIONS ---
 
@@ -138,4 +203,31 @@ function testConfiguration() {
     catch(e) { console.error(`✗ ERROR with target ${TARGET_CALENDAR_ID}: ${e.message}`); allOk = false; }
 
     if (allOk) console.log('\nConfiguration is correct!'); else console.error('\nTest failed. Check calendar IDs and permissions.');
+}
+
+/**
+ * Utility function to get sync statistics
+ */
+function getSyncStatistics() {
+    const syncStateManager = getSyncStateManager();
+    const stats = syncStateManager.getSyncStats();
+
+    console.log('=== Sync Statistics ===');
+    console.log(`Total operations: ${stats.totalOperations}`);
+    console.log(`Recent operations (last 5 min): ${stats.recentOperations}`);
+    console.log(`Potential loops detected: ${stats.potentialLoops}`);
+    console.log('Operations by type:');
+    Object.entries(stats.operationsByType).forEach(([type, count]) => {
+        console.log(`  ${type}: ${count}`);
+    });
+
+    return stats;
+}
+
+/**
+ * Utility function to reset sync state (for troubleshooting)
+ */
+function resetSyncState() {
+    resetSyncStateManager();
+    console.log('Sync state has been reset.');
 }
