@@ -143,7 +143,44 @@ class ErrorRecoveryManager {
         console.log(`Skipping problematic event: ${error.eventId}`);
         return { success: true, message: 'Skipped problematic event' };
     }
+    handleQuotaExceeded() {
+        // Get current API usage stats
+        const apiStats = calendarApiManager.getQueueStatus();
+
+        // Calculate appropriate delay based on current usage
+        let delay = this.baseDelay;
+
+        if (apiStats.requestCount >= apiStats.maxRequests * 0.9) {
+            // Near quota limit - wait for quota reset
+            delay = Math.max(apiStats.quotaResetIn + 1000, this.baseDelay * 5);
+            console.log(`Near quota limit (${apiStats.requestCount}/${apiStats.maxRequests}), waiting ${delay}ms for quota reset`);
+        } else {
+            // Standard exponential backoff
+            delay = Math.min(this.baseDelay * 4, 300000); // Max 5 minutes
+            console.log(`Quota exceeded, implementing exponential backoff: ${delay}ms`);
+        }
+
+        Utilities.sleep(delay);
+        return { success: true, message: `Waited ${delay}ms for quota management` };
+    }
 }
+// Enhanced quota monitoring function
+function monitorApiQuota() {
+    const apiStats = getApiUsageStats();
+
+    // Log warning if approaching quota limits
+    if (apiStats.requestCount >= apiStats.maxRequests * 0.8) {
+        console.warn(`⚠️  API quota warning: ${apiStats.requestCount}/${apiStats.maxRequests} requests used`);
+    }
+
+    // Recommend sync frequency adjustment if quota is consistently high
+    if (apiStats.requestCount >= apiStats.maxRequests * 0.9) {
+        console.warn('📊 Consider reducing sync frequency or increasing batch delays to stay within quota limits');
+    }
+
+    return apiStats;
+}
+
 
 /**
  * Main function that starts the entire synchronization process.
@@ -178,7 +215,7 @@ function runNto1Sync() {
         // Get target events with retry logic
         let allTargetEvents;
         try {
-            allTargetEvents = getAllEventsIncludingDeleted(TARGET_CALENDAR_ID, startDate, endDate);
+            allTargetEvents = getAllEventsIncludingDeletedSafe(TARGET_CALENDAR_ID, startDate, endDate);
         } catch (error) {
             throw new CalendarAccessError(`Failed to access target calendar: ${error.message}`, TARGET_CALENDAR_ID);
         }
@@ -336,7 +373,7 @@ function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEve
 
     let sourceEvents;
     try {
-        sourceEvents = getAllEventsIncludingDeleted(sourceId, startDate, endDate);
+        sourceEvents = getAllEventsIncludingDeletedSafe(sourceId, startDate, endDate);
     } catch (error) {
         throw new CalendarAccessError(`Failed to access source calendar: ${error.message}`, sourceId);
     }
@@ -362,7 +399,7 @@ function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEve
             if (sourceEvent.status === 'cancelled') {
                 if (targetEvent && targetEvent.status !== 'cancelled') {
                     syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'delete');
-                    deleteEvent(targetId, targetEvent.id);
+                    deleteEventSafe(targetId, targetEvent.id);
                     console.log(`DELETED in target: "${sourceEvent.summary || ''}" (from ${sourceId})`);
                 }
             } else if (!targetEvent) {
@@ -382,7 +419,7 @@ function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEve
                         sourceUpdated: sourceUpdated.toISOString(),
                         targetUpdated: targetUpdated.toISOString()
                     });
-                    updateSyncedEvent(sourceEvent, targetId, targetEvent.id, sourceId);
+                    updateSyncedEventSafe(sourceEvent, targetId, targetEvent.id, sourceId);
                     console.log(`UPDATED in target: "${sourceEvent.summary}" (from ${sourceId})`);
                 }
             }
@@ -433,7 +470,7 @@ function syncTargetToSources(targetId, sourceIds, targetEvents) {
                 if (e.message.includes('Not Found')) {
                     if (targetEvent.status !== 'cancelled') {
                         syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'delete');
-                        deleteEvent(targetId, targetEvent.id);
+                        deleteEventSafe(targetId, targetEvent.id);
                     }
                     return;
                 }
@@ -443,7 +480,7 @@ function syncTargetToSources(targetId, sourceIds, targetEvents) {
             if (targetEvent.status === 'cancelled') {
                 if (originalEvent.status !== 'cancelled') {
                     syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'delete');
-                    deleteEvent(sourceCalendarId, originalEventId);
+                    deleteEventSafe(sourceCalendarId, originalEventId);
                     console.log(`DELETED in source: "${originalEvent.summary}" (in ${sourceCalendarId})`);
                 }
             } else {
@@ -460,7 +497,7 @@ function syncTargetToSources(targetId, sourceIds, targetEvents) {
                         originalUpdated: originalUpdated.toISOString()
                     });
 
-                    const updatedSourceEvent = updateSourceEvent(targetEvent, sourceCalendarId, originalEventId);
+                    const updatedSourceEvent = updateSourceEventSafe(targetEvent, sourceCalendarId, originalEventId);
                     console.log(`UPDATED in source: "${targetEvent.summary}" (in ${sourceCalendarId})`);
 
                     if (updatedSourceEvent) {

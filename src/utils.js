@@ -1,12 +1,301 @@
-
 /**
  * @fileoverview Utility functions for Calendar Sync script.
  * These functions handle data manipulation, API calls, and payload creation.
  */
 
-function getAllEventsIncludingDeleted(calendarId, startDate, endDate) {
+// Import error classes for Node.js environment
+let SyncError, CalendarAccessError, QuotaExceededError, EventSyncError, LoopDetectionError;
+
+if (typeof module !== 'undefined' && module.exports) {
+    // Node.js environment - define error classes locally
+    class SyncErrorLocal extends Error {
+        constructor(message, type = 'UNKNOWN', recoverable = false, retryable = false) {
+            super(message);
+            this.name = 'SyncError';
+            this.type = type;
+            this.recoverable = recoverable;
+            this.retryable = retryable;
+            this.timestamp = new Date().toISOString();
+        }
+    }
+
+    class CalendarAccessErrorLocal extends SyncErrorLocal {
+        constructor(message, calendarId) {
+            super(message, 'CALENDAR_ACCESS', false, true);
+            this.name = 'CalendarAccessError';
+            this.calendarId = calendarId;
+        }
+    }
+
+    class QuotaExceededErrorLocal extends SyncErrorLocal {
+        constructor(message) {
+            super(message, 'QUOTA_EXCEEDED', true, true);
+            this.name = 'QuotaExceededError';
+        }
+    }
+
+    class EventSyncErrorLocal extends SyncErrorLocal {
+        constructor(message, eventId, sourceCalendarId, targetCalendarId) {
+            super(message, 'EVENT_SYNC', true, true);
+            this.name = 'EventSyncError';
+            this.eventId = eventId;
+            this.sourceCalendarId = sourceCalendarId;
+            this.targetCalendarId = targetCalendarId;
+        }
+    }
+
+    class LoopDetectionErrorLocal extends SyncErrorLocal {
+        constructor(message, sourceId, targetId, eventId) {
+            super(message, 'LOOP_DETECTION', true, false);
+            this.name = 'LoopDetectionError';
+            this.sourceId = sourceId;
+            this.targetId = targetId;
+            this.eventId = eventId;
+        }
+    }
+
+    SyncError = SyncErrorLocal;
+    CalendarAccessError = CalendarAccessErrorLocal;
+    QuotaExceededError = QuotaExceededErrorLocal;
+    EventSyncError = EventSyncErrorLocal;
+    LoopDetectionError = LoopDetectionErrorLocal;
+}
+
+/**
+ * Enhanced Calendar API wrapper with rate limiting and retry logic
+ */
+class CalendarApiManager {
+    constructor() {
+        this.requestQueue = [];
+        this.lastRequestTime = 0;
+        this.minRequestInterval = 100; // 100ms between requests
+        this.maxRetries = 3;
+        this.baseDelay = 1000; // 1 second
+        this.backoffMultiplier = 2;
+        this.maxDelay = 30000; // 30 seconds max delay
+        this.quotaResetWindow = 60000; // 1 minute quota reset window
+        this.requestCount = 0;
+        this.windowStart = Date.now();
+        this.maxRequestsPerWindow = 100; // Conservative limit
+    }
+
+    /**
+     * Executes Calendar API call with rate limiting and retry logic
+     */
+    async executeApiCall(apiFunction, params = [], operationName = 'API_CALL') {
+        return new Promise((resolve, reject) => {
+            this.requestQueue.push({
+                apiFunction,
+                params,
+                operationName,
+                resolve,
+                reject,
+                attempts: 0
+            });
+            this.processQueue();
+        });
+    }
+
+    /**
+     * Processes the API request queue with rate limiting
+     */
+    processQueue() {
+        if (this.requestQueue.length === 0) return;
+
+        const now = Date.now();
+
+        // Reset quota window if needed
+        if (now - this.windowStart >= this.quotaResetWindow) {
+            this.requestCount = 0;
+            this.windowStart = now;
+        }
+
+        // Check if we're within quota limits
+        if (this.requestCount >= this.maxRequestsPerWindow) {
+            console.log(`Rate limit reached (${this.requestCount} requests), waiting for quota reset...`);
+            setTimeout(() => this.processQueue(), this.quotaResetWindow - (now - this.windowStart));
+            return;
+        }
+
+        // Check minimum interval between requests
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        if (timeSinceLastRequest < this.minRequestInterval) {
+            setTimeout(() => this.processQueue(), this.minRequestInterval - timeSinceLastRequest);
+            return;
+        }
+
+        // Process next request
+        const request = this.requestQueue.shift();
+        this.executeRequest(request);
+    }
+
+    /**
+     * Executes individual API request with retry logic
+     */
+    executeRequest(request) {
+        const { apiFunction, params, operationName, resolve, reject, attempts } = request;
+
+        try {
+            this.lastRequestTime = Date.now();
+            this.requestCount++;
+
+            console.log(`Executing ${operationName} (attempt ${attempts + 1})`);
+
+            // Handle mock environment for testing
+            let result;
+            if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+                // Test environment
+                result = apiFunction.apply(global.Calendar.Events, params);
+            } else if (typeof Calendar !== 'undefined') {
+                // Google Apps Script environment
+                result = apiFunction.apply(Calendar.Events, params);
+            } else {
+                throw new Error('Calendar API not available');
+            }
+
+            // Success - resolve and continue processing queue
+            resolve(result);
+            setTimeout(() => this.processQueue(), this.minRequestInterval);
+
+        } catch (error) {
+            this.handleApiError(error, request, resolve, reject);
+        }
+    }
+
+    /**
+     * Handles API errors with appropriate retry logic
+     */
+    handleApiError(error, request, resolve, reject) {
+        const { operationName, attempts } = request;
+        const errorMessage = error.message || error.toString();
+
+        // Check if this is a rate limit or quota error
+        const isRateLimit = this.isRateLimitError(error);
+        const isQuotaError = this.isQuotaError(error);
+        const isRetryableError = this.isRetryableError(error);
+
+        if ((isRateLimit || isQuotaError || isRetryableError) && attempts < this.maxRetries) {
+            console.log(`${operationName} failed with retryable error (attempt ${attempts + 1}): ${errorMessage}`);
+
+            // Calculate exponential backoff delay
+            let delay = this.baseDelay * Math.pow(this.backoffMultiplier, attempts);
+
+            // For rate limit errors, use longer delays
+            if (isRateLimit || isQuotaError) {
+                delay = Math.min(delay * 5, this.maxDelay); // 5x longer for rate limits
+                console.log(`Rate limit detected, implementing exponential backoff: ${delay}ms`);
+            }
+
+            // Add jitter to prevent thundering herd
+            delay += Math.random() * 1000;
+
+            // Schedule retry
+            request.attempts = attempts + 1;
+            setTimeout(() => {
+                this.requestQueue.unshift(request); // Put back at front of queue
+                this.processQueue();
+            }, delay);
+
+        } else {
+            // Non-retryable error or max retries reached
+            console.error(`${operationName} failed after ${attempts + 1} attempts: ${errorMessage}`);
+
+            // Classify error for better handling
+            let syncError;
+            if (SyncError) {
+                if (isRateLimit || isQuotaError) {
+                    syncError = new QuotaExceededError(`${operationName} quota exceeded: ${errorMessage}`);
+                } else if (this.isPermissionError(error)) {
+                    syncError = new CalendarAccessError(`${operationName} permission denied: ${errorMessage}`, null);
+                } else {
+                    syncError = new SyncError(`${operationName} failed: ${errorMessage}`, 'API_ERROR', false, false);
+                }
+            } else {
+                // Fallback for environments without error classes
+                syncError = error;
+            }
+
+            reject(syncError);
+
+            // Continue processing queue after a short delay
+            setTimeout(() => this.processQueue(), this.minRequestInterval);
+        }
+    }
+
+    /**
+     * Checks if error is a rate limit error
+     */
+    isRateLimitError(error) {
+        const message = error.message || error.toString();
+        return message.includes('Rate Limit') ||
+            message.includes('Too Many Requests') ||
+            message.includes('rateLimitExceeded') ||
+            error.code === 429;
+    }
+
+    /**
+     * Checks if error is a quota error
+     */
+    isQuotaError(error) {
+        const message = error.message || error.toString();
+        return message.includes('Quota') ||
+            message.includes('quota') ||
+            message.includes('dailyLimitExceeded') ||
+            message.includes('userRateLimitExceeded');
+    }
+
+    /**
+     * Checks if error is retryable
+     */
+    isRetryableError(error) {
+        const message = error.message || error.toString();
+        return message.includes('Service unavailable') ||
+            message.includes('Internal error') ||
+            message.includes('Backend Error') ||
+            message.includes('timeout') ||
+            error.code >= 500;
+    }
+
+    /**
+     * Checks if error is a permission error
+     */
+    isPermissionError(error) {
+        const message = error.message || error.toString();
+        return message.includes('Forbidden') ||
+            message.includes('Permission') ||
+            message.includes('Access denied') ||
+            error.code === 403;
+    }
+
+    /**
+     * Gets current queue status for monitoring
+     */
+    getQueueStatus() {
+        return {
+            queueLength: this.requestQueue.length,
+            requestCount: this.requestCount,
+            maxRequests: this.maxRequestsPerWindow,
+            windowStart: this.windowStart,
+            quotaResetIn: this.quotaResetWindow - (Date.now() - this.windowStart)
+        };
+    }
+}
+
+// Create global instance
+const calendarApiManager = new CalendarApiManager();
+
+/**
+ * Enhanced Calendar API wrapper functions with rate limiting
+ */
+async function safeCalendarApiCall(apiFunction, params, operationName) {
+    return calendarApiManager.executeApiCall(apiFunction, params, operationName);
+}
+
+// Enhanced utility functions with rate limiting
+async function getAllEventsIncludingDeletedSafe(calendarId, startDate, endDate) {
     let events = [];
     let pageToken = null;
+
     do {
         const optionalArgs = {
             timeMin: startDate.toISOString(),
@@ -16,17 +305,108 @@ function getAllEventsIncludingDeleted(calendarId, startDate, endDate) {
             maxResults: 2500,
             pageToken: pageToken
         };
+
         try {
-            const response = Calendar.Events.list(calendarId, optionalArgs);
+            // Determine the correct Calendar API reference
+            let CalendarEvents;
+            if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+                CalendarEvents = global.Calendar.Events;
+            } else if (typeof Calendar !== 'undefined') {
+                CalendarEvents = Calendar.Events;
+            } else {
+                throw new Error('Calendar API not available');
+            }
+
+            const response = await safeCalendarApiCall(
+                CalendarEvents.list,
+                [calendarId, optionalArgs],
+                `LIST_EVENTS_${calendarId}`
+            );
+
             if (response.items) {
                 events = events.concat(response.items);
             }
             pageToken = response.nextPageToken;
-        } catch (e) {
-            console.error(`Error loading events from ${calendarId}: ${e.toString()}`);
+
+        } catch (error) {
+            console.error(`Error loading events from ${calendarId}: ${error.message}`);
+
+            // For non-critical errors, continue with partial results
+            if (error.type !== 'CALENDAR_ACCESS') {
+                pageToken = null;
+            } else {
+                throw error;
+            }
+        }
+    } while (pageToken);
+
+    return events;
+}
+
+// Original synchronous function with improved rate limiting
+function getAllEventsIncludingDeleted(calendarId, startDate, endDate) {
+    let events = [];
+    let pageToken = null;
+
+    do {
+        const optionalArgs = {
+            timeMin: startDate.toISOString(),
+            timeMax: endDate.toISOString(),
+            showDeleted: true,
+            singleEvents: true,
+            maxResults: 2500,
+            pageToken: pageToken
+        };
+
+        try {
+            // Add rate limiting even for synchronous calls
+            const now = Date.now();
+            if (now - calendarApiManager.lastRequestTime < calendarApiManager.minRequestInterval) {
+                const sleepTime = calendarApiManager.minRequestInterval - (now - calendarApiManager.lastRequestTime);
+                if (typeof Utilities !== 'undefined') {
+                    Utilities.sleep(sleepTime);
+                } else {
+                    // For testing environment, we'll skip the sleep
+                    console.log(`Would sleep for ${sleepTime}ms in production`);
+                }
+            }
+
+            calendarApiManager.lastRequestTime = Date.now();
+
+            // Determine the correct Calendar API reference
+            let response;
+            if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+                response = global.Calendar.Events.list(calendarId, optionalArgs);
+            } else if (typeof Calendar !== 'undefined') {
+                response = Calendar.Events.list(calendarId, optionalArgs);
+            } else {
+                throw new Error('Calendar API not available');
+            }
+
+            if (response.items) {
+                events = events.concat(response.items);
+            }
+            pageToken = response.nextPageToken;
+
+        } catch (error) {
+            // Handle rate limit errors with exponential backoff
+            if (calendarApiManager.isRateLimitError(error) || calendarApiManager.isQuotaError(error)) {
+                const delay = Math.min(calendarApiManager.baseDelay * 2, calendarApiManager.maxDelay);
+                console.log(`Rate limit hit, waiting ${delay}ms...`);
+                if (typeof Utilities !== 'undefined') {
+                    Utilities.sleep(delay);
+                } else {
+                    console.log(`Would sleep for ${delay}ms in production`);
+                }
+                // Don't increment pageToken to retry the same request
+                continue;
+            }
+
+            console.error(`Error loading events from ${calendarId}: ${error.toString()}`);
             pageToken = null;
         }
     } while (pageToken);
+
     return events;
 }
 
@@ -100,7 +480,35 @@ function _buildSourceEventPayload(targetEvent) {
 
 function createSyncedEvent(sourceEvent, targetCalendarId, sourceCalendarId) {
     const eventData = _buildEventPayload(sourceEvent, sourceCalendarId);
-    return Calendar.Events.insert(eventData, targetCalendarId);
+
+    // Determine the correct Calendar API reference
+    if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+        return global.Calendar.Events.insert(eventData, targetCalendarId);
+    } else if (typeof Calendar !== 'undefined') {
+        return Calendar.Events.insert(eventData, targetCalendarId);
+    } else {
+        throw new Error('Calendar API not available');
+    }
+}
+
+async function createSyncedEventSafe(sourceEvent, targetCalendarId, sourceCalendarId) {
+    const eventData = _buildEventPayload(sourceEvent, sourceCalendarId);
+
+    // Determine the correct Calendar API reference
+    let CalendarEvents;
+    if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+        CalendarEvents = global.Calendar.Events;
+    } else if (typeof Calendar !== 'undefined') {
+        CalendarEvents = Calendar.Events;
+    } else {
+        throw new Error('Calendar API not available');
+    }
+
+    return safeCalendarApiCall(
+        CalendarEvents.insert,
+        [eventData, targetCalendarId],
+        `INSERT_EVENT_${targetCalendarId}`
+    );
 }
 
 function findEventByAttributes(events, sourceEvent) {
@@ -155,17 +563,80 @@ function createOrUpdateSyncedEvent(sourceEvent, targetCalendarId, sourceCalendar
 
 function updateSyncedEvent(sourceEvent, targetCalendarId, targetEventId, sourceCalendarId) {
     const eventData = _buildEventPayload(sourceEvent, sourceCalendarId);
-    return Calendar.Events.update(eventData, targetCalendarId, targetEventId);
+
+    // Determine the correct Calendar API reference
+    if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+        return global.Calendar.Events.update(eventData, targetCalendarId, targetEventId);
+    } else if (typeof Calendar !== 'undefined') {
+        return Calendar.Events.update(eventData, targetCalendarId, targetEventId);
+    } else {
+        throw new Error('Calendar API not available');
+    }
+}
+
+async function updateSyncedEventSafe(sourceEvent, targetCalendarId, targetEventId, sourceCalendarId) {
+    const eventData = _buildEventPayload(sourceEvent, sourceCalendarId);
+
+    // Determine the correct Calendar API reference
+    let CalendarEvents;
+    if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+        CalendarEvents = global.Calendar.Events;
+    } else if (typeof Calendar !== 'undefined') {
+        CalendarEvents = Calendar.Events;
+    } else {
+        throw new Error('Calendar API not available');
+    }
+
+    return safeCalendarApiCall(
+        CalendarEvents.update,
+        [eventData, targetCalendarId, targetEventId],
+        `UPDATE_EVENT_${targetCalendarId}_${targetEventId}`
+    );
 }
 
 function updateSourceEvent(targetEvent, sourceCalendarId, originalEventId) {
     const eventData = _buildSourceEventPayload(targetEvent);
-    return Calendar.Events.update(eventData, sourceCalendarId, originalEventId);
+
+    // Determine the correct Calendar API reference
+    if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+        return global.Calendar.Events.update(eventData, sourceCalendarId, originalEventId);
+    } else if (typeof Calendar !== 'undefined') {
+        return Calendar.Events.update(eventData, sourceCalendarId, originalEventId);
+    } else {
+        throw new Error('Calendar API not available');
+    }
+}
+
+async function updateSourceEventSafe(targetEvent, sourceCalendarId, originalEventId) {
+    const eventData = _buildSourceEventPayload(targetEvent);
+
+    // Determine the correct Calendar API reference
+    let CalendarEvents;
+    if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+        CalendarEvents = global.Calendar.Events;
+    } else if (typeof Calendar !== 'undefined') {
+        CalendarEvents = Calendar.Events;
+    } else {
+        throw new Error('Calendar API not available');
+    }
+
+    return safeCalendarApiCall(
+        CalendarEvents.update,
+        [eventData, sourceCalendarId, originalEventId],
+        `UPDATE_SOURCE_EVENT_${sourceCalendarId}_${originalEventId}`
+    );
 }
 
 function deleteEvent(calendarId, eventId) {
     try {
-        return Calendar.Events.remove(calendarId, eventId);
+        // Determine the correct Calendar API reference
+        if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+            return global.Calendar.Events.remove(calendarId, eventId);
+        } else if (typeof Calendar !== 'undefined') {
+            return Calendar.Events.remove(calendarId, eventId);
+        } else {
+            throw new Error('Calendar API not available');
+        }
     } catch (error) {
         if (error.message.includes('Not Found')) {
             console.log(`Attempt to delete event ${eventId}, which no longer exists.`);
@@ -173,6 +644,93 @@ function deleteEvent(calendarId, eventId) {
             console.error(`Error deleting event ${eventId}:`, error);
         }
     }
+}
+
+async function deleteEventSafe(calendarId, eventId) {
+    try {
+        // Determine the correct Calendar API reference
+        let CalendarEvents;
+        if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+            CalendarEvents = global.Calendar.Events;
+        } else if (typeof Calendar !== 'undefined') {
+            CalendarEvents = Calendar.Events;
+        } else {
+            throw new Error('Calendar API not available');
+        }
+
+        return await safeCalendarApiCall(
+            CalendarEvents.remove,
+            [calendarId, eventId],
+            `DELETE_EVENT_${calendarId}_${eventId}`
+        );
+    } catch (error) {
+        if (error.message && error.message.includes('Not Found')) {
+            console.log(`Attempt to delete event ${eventId}, which no longer exists.`);
+            return true; // Treat as success
+        } else {
+            throw error;
+        }
+    }
+}
+
+async function getCalendarEventSafe(calendarId, eventId) {
+    // Determine the correct Calendar API reference
+    let CalendarEvents;
+    if (typeof global !== 'undefined' && global.Calendar && global.Calendar.Events) {
+        CalendarEvents = global.Calendar.Events;
+    } else if (typeof Calendar !== 'undefined') {
+        CalendarEvents = Calendar.Events;
+    } else {
+        throw new Error('Calendar API not available');
+    }
+
+    return safeCalendarApiCall(
+        CalendarEvents.get,
+        [calendarId, eventId],
+        `GET_EVENT_${calendarId}_${eventId}`
+    );
+}
+
+/**
+ * Batch API call utility for more efficient processing
+ */
+async function batchCalendarApiCalls(calls, batchSize = 5) {
+    const results = [];
+
+    for (let i = 0; i < calls.length; i += batchSize) {
+        const batch = calls.slice(i, i + batchSize);
+        const batchPromises = batch.map(call =>
+            safeCalendarApiCall(call.apiFunction, call.params, call.operationName)
+        );
+
+        try {
+            const batchResults = await Promise.allSettled(batchPromises);
+            results.push(...batchResults);
+
+            // Small delay between batches to avoid overwhelming the API
+            if (i + batchSize < calls.length) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+        } catch (error) {
+            console.error(`Batch API call failed:`, error);
+            // Continue with next batch
+        }
+    }
+
+    return results;
+}
+
+/**
+ * Utility function to monitor API usage
+ */
+function getApiUsageStats() {
+    const queueStatus = calendarApiManager.getQueueStatus();
+    console.log('=== Calendar API Usage Stats ===');
+    console.log(`Queue length: ${queueStatus.queueLength}`);
+    console.log(`Requests in current window: ${queueStatus.requestCount}/${queueStatus.maxRequests}`);
+    console.log(`Quota resets in: ${Math.round(queueStatus.quotaResetIn / 1000)}s`);
+    return queueStatus;
 }
 
 /**
@@ -209,15 +767,24 @@ function getSyncMetadata(event) {
 if (typeof module !== 'undefined') {
     module.exports = {
         getAllEventsIncludingDeleted,
+        getAllEventsIncludingDeletedSafe,
         createEventMapForSource,
         generateSyncKey,
         generateSyncVersion,
         createSyncedEvent,
+        createSyncedEventSafe,
         updateSyncedEvent,
+        updateSyncedEventSafe,
         updateSourceEvent,
+        updateSourceEventSafe,
         deleteEvent,
+        deleteEventSafe,
         createOrUpdateSyncedEvent,
         isInSyncLoop,
-        getSyncMetadata
+        getSyncMetadata,
+        getApiUsageStats,
+        batchCalendarApiCalls,
+        CalendarApiManager,
+        calendarApiManager
     };
 }

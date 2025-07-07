@@ -29,3 +29,41 @@ const SYNC_CONFIG = {
     MAX_OPERATION_HISTORY: 1000,   // Maximum operations to keep in history
     SYNC_STATE_CLEANUP_INTERVAL: 3600000, // 1 hour in milliseconds
 };
+
+/**
+ * Calendar API Rate Limiting Configuration
+ */
+const API_RATE_LIMIT_CONFIG = {
+    // Request timing
+    MIN_REQUEST_INTERVAL: 100, // Minimum milliseconds between requests
+    MAX_REQUESTS_PER_WINDOW: 100, // Maximum requests per quota window
+    QUOTA_RESET_WINDOW: 60000, // Quota reset window in milliseconds (1 minute)
+
+    // Retry configuration
+    MAX_RETRIES: 3, // Maximum retry attempts
+    BASE_DELAY: 1000, // Base delay for exponential backoff (1 second)
+    BACKOFF_MULTIPLIER: 2, // Multiplier for exponential backoff
+    MAX_DELAY: 30000, // Maximum delay between retries (30 seconds)
+
+    // Batch processing
+    BATCH_SIZE: 5, // Number of API calls per batch
+    BATCH_DELAY: 500, // Delay between batches in milliseconds
+
+    // Monitoring
+    QUOTA_WARNING_THRESHOLD: 0.8, // Warn when 80% of quota is used
+    QUOTA_CRITICAL_THRESHOLD: 0.9, // Critical warning at 90% quota usage
+};
+
+// Apply configuration to CalendarApiManager
+if (typeof calendarApiManager !== 'undefined') {
+    Object.assign(calendarApiManager, {
+        minRequestInterval: API_RATE_LIMIT_CONFIG.MIN_REQUEST_INTERVAL,
+        maxRequestsPerWindow: API_RATE_LIMIT_CONFIG.MAX_REQUESTS_PER_WINDOW,
+        quotaResetWindow: API_RATE_LIMIT_CONFIG.QUOTA_RESET_WINDOW,
+        maxRetries: API_RATE_LIMIT_CONFIG.MAX_RETRIES,
+        baseDelay: API_RATE_LIMIT_CONFIG.BASE_DELAY,
+        backoffMultiplier: API_RATE_LIMIT_CONFIG.BACKOFF_MULTIPLIER,
+        maxDelay: API_RATE_LIMIT_CONFIG.MAX_DELAY
+    });
+}
+

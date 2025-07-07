@@ -3,6 +3,7 @@ require('./mocks');
 const {
     generateSyncKey,
     getAllEventsIncludingDeleted,
+    getAllEventsIncludingDeletedSafe,
     createEventMapForSource,
     createSyncedEvent,
     updateSyncedEvent,
@@ -35,7 +36,7 @@ describe('Utility Functions', () => {
         });
     });
 
-    describe('getAllEventsIncludingDeleted', () => {
+    describe('getAllEventsIncludingDeleted (synchronous)', () => {
         beforeEach(() => {
             jest.clearAllMocks();
         });
@@ -87,6 +88,55 @@ describe('Utility Functions', () => {
             const startDate = new Date('2023-01-01');
             const endDate = new Date('2023-01-31');
             const result = getAllEventsIncludingDeleted('cal@google.com', startDate, endDate);
+
+            expect(result).toEqual([]);
+            expect(global.console.error).toHaveBeenCalled();
+        });
+    });
+
+    describe('getAllEventsIncludingDeletedSafe (async)', () => {
+        beforeEach(() => {
+            jest.clearAllMocks();
+        });
+
+        it('should fetch all events from calendar within date range', async () => {
+            const mockEvents = [
+                { id: 'event1', summary: 'Event 1' },
+                { id: 'event2', summary: 'Event 2' }
+            ];
+
+            global.Calendar.Events.list.mockReturnValue({ items: mockEvents });
+
+            const startDate = new Date('2023-01-01');
+            const endDate = new Date('2023-01-31');
+            const result = await getAllEventsIncludingDeletedSafe('cal@google.com', startDate, endDate);
+
+            expect(result).toEqual(mockEvents);
+        });
+
+        it('should handle pagination correctly', async () => {
+            const page1 = [{ id: 'event1' }];
+            const page2 = [{ id: 'event2' }];
+
+            global.Calendar.Events.list
+                .mockReturnValueOnce({ items: page1, nextPageToken: 'token123' })
+                .mockReturnValueOnce({ items: page2 });
+
+            const startDate = new Date('2023-01-01');
+            const endDate = new Date('2023-01-31');
+            const result = await getAllEventsIncludingDeletedSafe('cal@google.com', startDate, endDate);
+
+            expect(result).toEqual([...page1, ...page2]);
+        });
+
+        it('should handle API errors gracefully', async () => {
+            global.Calendar.Events.list.mockImplementation(() => {
+                throw new Error('API Error');
+            });
+
+            const startDate = new Date('2023-01-01');
+            const endDate = new Date('2023-01-31');
+            const result = await getAllEventsIncludingDeletedSafe('cal@google.com', startDate, endDate);
 
             expect(result).toEqual([]);
             expect(global.console.error).toHaveBeenCalled();
