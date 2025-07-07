@@ -7,7 +7,8 @@ const {
     createSyncedEvent,
     updateSyncedEvent,
     updateSourceEvent,
-    deleteEvent
+    deleteEvent,
+    createOrUpdateSyncedEvent
 } = require('../src/utils');
 
 describe('Utility Functions', () => {
@@ -258,6 +259,250 @@ describe('Utility Functions', () => {
                 'Error deleting event event123:',
                 otherError
             );
+        });
+    });
+
+    describe('createOrUpdateSyncedEvent', () => {
+        beforeEach(() => {
+            jest.clearAllMocks();
+        });
+
+        it('should update existing event found by syncKey', () => {
+            const sourceEvent = {
+                id: 'original123',
+                summary: 'Test Event',
+                start: { dateTime: '2023-01-01T10:00:00Z' },
+                end: { dateTime: '2023-01-01T11:00:00Z' }
+            };
+
+            const targetEvents = [
+                {
+                    id: 'target123',
+                    summary: 'Test Event',
+                    start: { dateTime: '2023-01-01T10:00:00Z' },
+                    end: { dateTime: '2023-01-01T11:00:00Z' },
+                    extendedProperties: {
+                        private: {
+                            SYNC_KEY: 'source@cal.com:original123',
+                            SYNC_SOURCE: 'source@cal.com'
+                        }
+                    }
+                }
+            ];
+
+            const mockUpdatedEvent = { id: 'target123' };
+            global.Calendar.Events.update.mockReturnValue(mockUpdatedEvent);
+
+            const result = createOrUpdateSyncedEvent(sourceEvent, 'target@cal.com', 'source@cal.com', targetEvents);
+
+            expect(result).toBe(mockUpdatedEvent);
+            expect(global.Calendar.Events.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    summary: 'Test Event',
+                    extendedProperties: {
+                        private: {
+                            SYNC_KEY: 'source@cal.com:original123',
+                            SYNC_SOURCE: 'source@cal.com',
+                            SYNC_ORIGINAL_ID: 'original123'
+                        }
+                    }
+                }),
+                'target@cal.com',
+                'target123'
+            );
+            expect(global.console.log).toHaveBeenCalledWith('UPDATING in target: "Test Event" (from source@cal.com)');
+        });
+
+        it('should sync existing event found by attributes when syncKey not found', () => {
+            const sourceEvent = {
+                id: 'original123',
+                summary: 'Meeting with Client',
+                start: { dateTime: '2023-01-01T10:00:00Z' },
+                end: { dateTime: '2023-01-01T11:00:00Z' }
+            };
+
+            const targetEvents = [
+                {
+                    id: 'target456',
+                    summary: 'Meeting with Client',
+                    start: { dateTime: '2023-01-01T10:00:00Z' },
+                    end: { dateTime: '2023-01-01T11:00:00Z' }
+                    // No sync properties - this is an unsynced event
+                }
+            ];
+
+            const mockUpdatedEvent = { id: 'target456' };
+            global.Calendar.Events.update.mockReturnValue(mockUpdatedEvent);
+
+            const result = createOrUpdateSyncedEvent(sourceEvent, 'target@cal.com', 'source@cal.com', targetEvents);
+
+            expect(result).toBe(mockUpdatedEvent);
+            expect(global.Calendar.Events.update).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    summary: 'Meeting with Client',
+                    extendedProperties: {
+                        private: {
+                            SYNC_KEY: 'source@cal.com:original123',
+                            SYNC_SOURCE: 'source@cal.com',
+                            SYNC_ORIGINAL_ID: 'original123'
+                        }
+                    }
+                }),
+                'target@cal.com',
+                'target456'
+            );
+            expect(global.console.log).toHaveBeenCalledWith('SYNCING existing event in target: "Meeting with Client" (from source@cal.com)');
+        });
+
+        it('should create new event when not found by syncKey or attributes', () => {
+            const sourceEvent = {
+                id: 'original123',
+                summary: 'New Event',
+                start: { dateTime: '2023-01-01T10:00:00Z' },
+                end: { dateTime: '2023-01-01T11:00:00Z' }
+            };
+
+            const targetEvents = [
+                {
+                    id: 'target456',
+                    summary: 'Different Event',
+                    start: { dateTime: '2023-01-01T12:00:00Z' },
+                    end: { dateTime: '2023-01-01T13:00:00Z' }
+                }
+            ];
+
+            const mockCreatedEvent = { id: 'target789' };
+            global.Calendar.Events.insert.mockReturnValue(mockCreatedEvent);
+
+            const result = createOrUpdateSyncedEvent(sourceEvent, 'target@cal.com', 'source@cal.com', targetEvents);
+
+            expect(result).toBe(mockCreatedEvent);
+            expect(global.Calendar.Events.insert).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    summary: 'New Event',
+                    extendedProperties: {
+                        private: {
+                            SYNC_KEY: 'source@cal.com:original123',
+                            SYNC_SOURCE: 'source@cal.com',
+                            SYNC_ORIGINAL_ID: 'original123'
+                        }
+                    }
+                }),
+                'target@cal.com'
+            );
+            expect(global.console.log).toHaveBeenCalledWith('CREATED in target: "New Event" (from source@cal.com)');
+        });
+
+        it('should handle events with date format (all-day events)', () => {
+            const sourceEvent = {
+                id: 'original123',
+                summary: 'All Day Event',
+                start: { date: '2023-01-01' },
+                end: { date: '2023-01-02' }
+            };
+
+            const targetEvents = [
+                {
+                    id: 'target456',
+                    summary: 'All Day Event',
+                    start: { date: '2023-01-01' },
+                    end: { date: '2023-01-02' }
+                }
+            ];
+
+            const mockUpdatedEvent = { id: 'target456' };
+            global.Calendar.Events.update.mockReturnValue(mockUpdatedEvent);
+
+            const result = createOrUpdateSyncedEvent(sourceEvent, 'target@cal.com', 'source@cal.com', targetEvents);
+
+            expect(result).toBe(mockUpdatedEvent);
+            expect(global.console.log).toHaveBeenCalledWith('SYNCING existing event in target: "All Day Event" (from source@cal.com)');
+        });
+
+        it('should not match events that already have sync properties when searching by attributes', () => {
+            const sourceEvent = {
+                id: 'original123',
+                summary: 'Meeting',
+                start: { dateTime: '2023-01-01T10:00:00Z' },
+                end: { dateTime: '2023-01-01T11:00:00Z' }
+            };
+
+            const targetEvents = [
+                {
+                    id: 'target456',
+                    summary: 'Meeting',
+                    start: { dateTime: '2023-01-01T10:00:00Z' },
+                    end: { dateTime: '2023-01-01T11:00:00Z' },
+                    extendedProperties: {
+                        private: {
+                            SYNC_KEY: 'other@cal.com:other123',
+                            SYNC_SOURCE: 'other@cal.com'
+                        }
+                    }
+                }
+            ];
+
+            const mockCreatedEvent = { id: 'target789' };
+            global.Calendar.Events.insert.mockReturnValue(mockCreatedEvent);
+
+            const result = createOrUpdateSyncedEvent(sourceEvent, 'target@cal.com', 'source@cal.com', targetEvents);
+
+            expect(result).toBe(mockCreatedEvent);
+            expect(global.Calendar.Events.insert).toHaveBeenCalled();
+            expect(global.console.log).toHaveBeenCalledWith('CREATED in target: "Meeting" (from source@cal.com)');
+        });
+
+        it('should handle empty target events array', () => {
+            const sourceEvent = {
+                id: 'original123',
+                summary: 'Test Event',
+                start: { dateTime: '2023-01-01T10:00:00Z' },
+                end: { dateTime: '2023-01-01T11:00:00Z' }
+            };
+
+            const targetEvents = [];
+
+            const mockCreatedEvent = { id: 'target456' };
+            global.Calendar.Events.insert.mockReturnValue(mockCreatedEvent);
+
+            const result = createOrUpdateSyncedEvent(sourceEvent, 'target@cal.com', 'source@cal.com', targetEvents);
+
+            expect(result).toBe(mockCreatedEvent);
+            expect(global.Calendar.Events.insert).toHaveBeenCalled();
+            expect(global.console.log).toHaveBeenCalledWith('CREATED in target: "Test Event" (from source@cal.com)');
+        });
+
+        it('should handle partial attribute matches correctly', () => {
+            const sourceEvent = {
+                id: 'original123',
+                summary: 'Meeting',
+                start: { dateTime: '2023-01-01T10:00:00Z' },
+                end: { dateTime: '2023-01-01T11:00:00Z' }
+            };
+
+            const targetEvents = [
+                {
+                    id: 'target456',
+                    summary: 'Meeting',
+                    start: { dateTime: '2023-01-01T10:00:00Z' },
+                    end: { dateTime: '2023-01-01T12:00:00Z' } // Different end time
+                },
+                {
+                    id: 'target789',
+                    summary: 'Different Meeting',
+                    start: { dateTime: '2023-01-01T10:00:00Z' },
+                    end: { dateTime: '2023-01-01T11:00:00Z' } // Different summary
+                }
+            ];
+
+            const mockCreatedEvent = { id: 'target999' };
+            global.Calendar.Events.insert.mockReturnValue(mockCreatedEvent);
+
+            const result = createOrUpdateSyncedEvent(sourceEvent, 'target@cal.com', 'source@cal.com', targetEvents);
+
+            expect(result).toBe(mockCreatedEvent);
+            expect(global.Calendar.Events.insert).toHaveBeenCalled();
+            expect(global.console.log).toHaveBeenCalledWith('CREATED in target: "Meeting" (from source@cal.com)');
         });
     });
 });

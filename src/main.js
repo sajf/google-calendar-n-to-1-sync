@@ -58,7 +58,7 @@ function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEve
                 console.log(`DELETED in target: "${sourceEvent.summary || ''}" (from ${sourceId})`);
             }
         } else if (!targetEvent) {
-            createSyncedEvent(sourceEvent, targetId, sourceId);
+            createOrUpdateSyncedEvent(sourceEvent, targetId, sourceId);
             console.log(`CREATED in target: "${sourceEvent.summary}" (from ${sourceId})`);
         } else {
             const sourceUpdated = new Date(sourceEvent.updated);

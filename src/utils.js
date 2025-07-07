@@ -90,6 +90,57 @@ function createSyncedEvent(sourceEvent, targetCalendarId, sourceCalendarId) {
     return Calendar.Events.insert(eventData, targetCalendarId);
 }
 
+function findEventByAttributes(events, sourceEvent) {
+    return events.find(event => {
+        // Skip events that already have sync properties (they're already synced)
+        if (event.extendedProperties?.private?.SYNC_KEY) {
+            return false;
+        }
+
+        // Match by summary, start, and end times
+        const summaryMatch = event.summary === sourceEvent.summary;
+
+        // Handle both dateTime and date formats
+        const sourceStart = sourceEvent.start?.dateTime || sourceEvent.start?.date;
+        const sourceEnd = sourceEvent.end?.dateTime || sourceEvent.end?.date;
+        const targetStart = event.start?.dateTime || event.start?.date;
+        const targetEnd = event.end?.dateTime || event.end?.date;
+
+        const startMatch = sourceStart === targetStart;
+        const endMatch = sourceEnd === targetEnd;
+
+        return summaryMatch && startMatch && endMatch;
+    });
+}
+
+function createOrUpdateSyncedEvent(sourceEvent, targetCalendarId, sourceCalendarId, targetEvents) {
+    const syncKey = generateSyncKey(sourceEvent, sourceCalendarId);
+
+    // First, try to find by syncKey in the event map
+    const eventMap = createEventMapForSource(targetEvents, sourceCalendarId);
+    let targetEvent = eventMap[syncKey];
+
+    if (targetEvent) {
+        // Event exists by syncKey, update it
+        console.log(`UPDATING in target: "${sourceEvent.summary}" (from ${sourceCalendarId})`);
+        return updateSyncedEvent(sourceEvent, targetCalendarId, targetEvent.id, sourceCalendarId);
+    } else {
+        // Check if event exists by name, summary, start, and end times
+        targetEvent = findEventByAttributes(targetEvents, sourceEvent);
+
+        if (targetEvent) {
+            // Event exists by attributes, sync it by updating with sync properties
+            console.log(`SYNCING existing event in target: "${sourceEvent.summary}" (from ${sourceCalendarId})`);
+            return updateSyncedEvent(sourceEvent, targetCalendarId, targetEvent.id, sourceCalendarId);
+        } else {
+            // Event doesn't exist, create new one
+            console.log(`CREATED in target: "${sourceEvent.summary}" (from ${sourceCalendarId})`);
+            return createSyncedEvent(sourceEvent, targetCalendarId, sourceCalendarId);
+        }
+    }
+}
+
+
 function updateSyncedEvent(sourceEvent, targetCalendarId, targetEventId, sourceCalendarId) {
     const eventData = _buildEventPayload(sourceEvent, sourceCalendarId);
     return Calendar.Events.update(eventData, targetCalendarId, targetEventId);
@@ -121,6 +172,7 @@ if (typeof module !== 'undefined') {
         createSyncedEvent,
         updateSyncedEvent,
         updateSourceEvent,
-        deleteEvent
+        deleteEvent,
+        createOrUpdateSyncedEvent
     };
 }
