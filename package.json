@@ -4,7 +4,8 @@
   "description": "A Google Apps Script for N-to-1 calendar synchronization.",
   "main": "src/main.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "test:ci": "jest --ci --coverage --watchAll=false"
   },
   "keywords": [
     "google-apps-script",
