@@ -1,0 +1,5 @@
+# Node
+node_modules/
+
+# Clasp local files
+.clasp.json
