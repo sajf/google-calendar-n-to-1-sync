@@ -111,3 +111,16 @@ function deleteEvent(calendarId, eventId) {
         }
     }
 }
+
+// For Node.js testing environment
+if (typeof module !== 'undefined') {
+    module.exports = {
+        getAllEventsIncludingDeleted,
+        createEventMapForSource,
+        generateSyncKey,
+        createSyncedEvent,
+        updateSyncedEvent,
+        updateSourceEvent,
+        deleteEvent
+    };
+}

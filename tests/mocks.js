@@ -4,7 +4,7 @@
 const createMockEvent = ({ id, summary, updated, status = 'confirmed', extendedProperties = {} }) => ({
     id,
     summary,
-    updated: updated || new Date().toISOString(),
+    updated: updated || '2023-01-01T00:00:00.000Z', // Fixed timestamp for consistent snapshots
     status,
     extendedProperties,
 });

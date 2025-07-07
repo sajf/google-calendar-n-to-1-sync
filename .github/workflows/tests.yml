@@ -8,20 +8,43 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [16.x, 18.x] # Testuje na dvou verzích Node.js
+        node-version: [16.x, 18.x, 20.x]
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Run Jest tests
-        run: npm test
+      - name: Run linting (if ESLint is configured)
+        run: npm run lint || echo "No lint script found"
+
+      - name: Run unit tests
+        run: npm run test:ci
+
+      - name: Run integration tests
+        run: npm test -- tests/integration.test.js
+
+      - name: Run E2E tests
+        run: npm test -- tests/e2e.test.js
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Archive coverage results
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report-${{ matrix.node-version }}
+          path: coverage/
