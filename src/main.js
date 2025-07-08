@@ -6,6 +6,38 @@
 // Import configuration variables
 /* global SOURCE_CALENDAR_IDS, TARGET_CALENDAR_ID, SYNC_CONFIG */
 
+/**
+ * Gets the configuration from script properties or falls back to config.js
+ * @returns {object} The configuration object with sourceCalendarIds, targetCalendarId, and syncConfig
+ */
+function getConfigurationForSync() {
+  try {
+    // Try to get configuration from script properties
+    const scriptProperties = PropertiesService.getScriptProperties();
+    const configJson = scriptProperties.getProperty('SYNC_CONFIGURATION');
+
+    if (configJson) {
+      const config = JSON.parse(configJson);
+      console.log('Using configuration from script properties');
+      return {
+        sourceCalendarIds: config.sourceCalendarIds,
+        targetCalendarId: config.targetCalendarId,
+        syncConfig: config.syncConfig
+      };
+    }
+  } catch (error) {
+    console.warn('Error loading configuration from script properties:', error);
+    console.log('Falling back to config.js configuration');
+  }
+
+  // Fall back to config.js configuration
+  return {
+    sourceCalendarIds: SOURCE_CALENDAR_IDS,
+    targetCalendarId: TARGET_CALENDAR_ID,
+    syncConfig: SYNC_CONFIG
+  };
+}
+
 // Constants for magic numbers
 const QUOTA_WARNING_THRESHOLD = 0.8; // 80% of quota
 const QUOTA_CRITICAL_THRESHOLD = 0.9; // 90% of quota
@@ -274,6 +306,15 @@ function runNto1Sync() {
     return;
   }
 
+  // Get configuration
+  const config = getConfigurationForSync();
+  const sourceCalendarIds = config.sourceCalendarIds;
+  const targetCalendarId = config.targetCalendarId;
+  const syncConfig = config.syncConfig;
+
+  // Initialize progress tracking
+  const progressTracker = initializeProgressTracking(sourceCalendarIds.length);
+
   const errorRecovery = new ErrorRecoveryManager();
   let syncSuccess = false;
   const criticalErrors = [];
@@ -281,13 +322,15 @@ function runNto1Sync() {
 
   try {
     const now = new Date();
-    const startDate = new Date(now.getTime() - SYNC_CONFIG.DAYS_BACK * 24 * 60 * 60 * 1000);
-    const endDate = new Date(now.getTime() + SYNC_CONFIG.DAYS_FORWARD * 24 * 60 * 60 * 1000);
+    const startDate = new Date(now.getTime() - syncConfig.DAYS_BACK * 24 * 60 * 60 * 1000);
+    const endDate = new Date(now.getTime() + syncConfig.DAYS_FORWARD * 24 * 60 * 60 * 1000);
 
     console.log('Starting N->1 synchronization...');
+    updateProgressStatus('Starting synchronization...', 0);
 
     // Get sync state manager for loop detection
     const syncStateManager = getSyncStateManager();
+    syncStateManager.loopDetectionWindow = syncConfig.LOOP_DETECTION_WINDOW || 300000;
 
     // Log sync statistics
     const stats = syncStateManager.getSyncStats();
@@ -298,44 +341,58 @@ function runNto1Sync() {
     // Get target events with retry logic
     let allTargetEvents;
     try {
-      allTargetEvents = getAllEventsIncludingDeletedSafe(TARGET_CALENDAR_ID, startDate, endDate);
+      updateProgressStatus('Loading target calendar events...', 5);
+      allTargetEvents = getAllEventsIncludingDeletedSafe(targetCalendarId, startDate, endDate);
+      updateProgressStatus(`Loaded ${allTargetEvents.length} events from target calendar`, 10);
     } catch (error) {
-      throw new CalendarAccessError(`Failed to access target calendar: ${error.message}`, TARGET_CALENDAR_ID);
+      updateProgressStatus(`Error: Failed to access target calendar: ${error.message}`, 10, 'error');
+      throw new CalendarAccessError(`Failed to access target calendar: ${error.message}`, targetCalendarId);
     }
 
     // PART 1: Synchronization from sources to target (N -> 1)
     let sourceSuccessCount = 0;
-    SOURCE_CALENDAR_IDS.forEach(sourceId => {
+    sourceCalendarIds.forEach((sourceId, index) => {
       const operationKey = `source-sync-${sourceId}`;
       let attempts = 0;
       let success = false;
 
+      // Update progress for starting this source calendar
+      updateSourceProgress(sourceId, index, sourceCalendarIds.length, 'Starting synchronization...', 'info');
+
       while (!success && attempts < errorRecovery.maxRetries + 1) {
         try {
-          syncSourceToTarget(sourceId, TARGET_CALENDAR_ID, startDate, endDate, allTargetEvents);
+          updateSourceProgress(sourceId, index, sourceCalendarIds.length, 'Syncing events...', 'info');
+          syncSourceToTarget(sourceId, targetCalendarId, startDate, endDate, allTargetEvents);
           success = true;
           sourceSuccessCount++;
           errorRecovery.clearRetryHistory(operationKey);
           console.log(`Successfully synced source calendar: ${sourceId}`);
+          updateSourceProgress(sourceId, index, sourceCalendarIds.length, 'Sync completed successfully', 'success');
         } catch (error) {
           attempts++;
-          const syncError = classifyError(error, sourceId, TARGET_CALENDAR_ID);
+          const syncError = classifyError(error, sourceId, targetCalendarId);
 
           if (syncError.recoverable && errorRecovery.shouldRetry(syncError, operationKey)) {
-            console.log(`Attempt ${attempts} failed for ${sourceId}. Retrying...`);
+            const retryMessage = `Attempt ${attempts} failed. Retrying...`;
+            console.log(`${retryMessage} for ${sourceId}`);
+            updateSourceProgress(sourceId, index, sourceCalendarIds.length, retryMessage, 'warning');
             errorRecovery.recordRetry(operationKey);
 
             const recovery = errorRecovery.attemptRecovery(syncError);
             if (recovery.success) {
               console.log(`Recovery successful: ${recovery.message}`);
+              updateSourceProgress(sourceId, index, sourceCalendarIds.length, `Recovery successful: ${recovery.message}`, 'info');
               const delay = errorRecovery.getRetryDelay(operationKey);
               Utilities.sleep(delay);
             } else {
               console.log(`Recovery failed: ${recovery.message}`);
+              updateSourceProgress(sourceId, index, sourceCalendarIds.length, `Recovery failed: ${recovery.message}`, 'error');
               break;
             }
           } else {
-            console.error(`Critical error syncing ${sourceId}: ${syncError.message}`);
+            const errorMessage = `Critical error: ${syncError.message}`;
+            console.error(`${errorMessage} syncing ${sourceId}`);
+            updateSourceProgress(sourceId, index, sourceCalendarIds.length, errorMessage, 'error');
             criticalErrors.push(syncError);
             break;
           }
@@ -343,38 +400,48 @@ function runNto1Sync() {
       }
 
       if (!success) {
-        console.error(`Failed to sync source calendar ${sourceId} after ${attempts} attempts`);
+        const failureMessage = `Failed to sync after ${attempts} attempts`;
+        console.error(`${failureMessage} for source calendar ${sourceId}`);
+        updateSourceProgress(sourceId, index, sourceCalendarIds.length, failureMessage, 'error');
         recoverableErrors.push(
-          new EventSyncError(`Failed to sync source ${sourceId}`, null, sourceId, TARGET_CALENDAR_ID)
+          new EventSyncError(`Failed to sync source ${sourceId}`, null, sourceId, targetCalendarId)
         );
       }
     });
 
     // PART 2: Reverse synchronization of changes from target to sources (1 -> N)
     try {
-      syncTargetToSources(TARGET_CALENDAR_ID, SOURCE_CALENDAR_IDS, allTargetEvents);
+      updateProgressStatus('Starting reverse synchronization...', 70);
+      syncTargetToSources(targetCalendarId, sourceCalendarIds, allTargetEvents);
+      updateProgressStatus('Reverse synchronization completed successfully', 90);
       console.log('Reverse synchronization completed successfully');
     } catch (error) {
-      const syncError = classifyError(error, TARGET_CALENDAR_ID, 'sources');
+      const syncError = classifyError(error, targetCalendarId, 'sources');
       if (syncError.recoverable) {
+        updateProgressStatus(`Recoverable error in reverse sync: ${syncError.message}`, 90, 'warning');
         console.log(`Recoverable error in reverse sync: ${syncError.message}`);
         recoverableErrors.push(syncError);
       } else {
+        updateProgressStatus(`Critical error in reverse sync: ${syncError.message}`, 90, 'error');
         console.error(`Critical error in reverse sync: ${syncError.message}`);
         criticalErrors.push(syncError);
       }
     }
 
     // Determine overall sync success
-    const totalSources = SOURCE_CALENDAR_IDS.length;
+    const totalSources = sourceCalendarIds.length;
     const successRate = sourceSuccessCount / totalSources;
 
     if (successRate >= 0.8) {
       // 80% success rate threshold
       syncSuccess = true;
-      console.log(`Synchronization completed successfully. Success rate: ${(successRate * 100).toFixed(1)}%`);
+      const successMessage = `Synchronization completed successfully. Success rate: ${(successRate * 100).toFixed(1)}%`;
+      updateProgressStatus(successMessage, 95, 'success');
+      console.log(successMessage);
     } else {
-      console.warn(`Synchronization completed with issues. Success rate: ${(successRate * 100).toFixed(1)}%`);
+      const warningMessage = `Synchronization completed with issues. Success rate: ${(successRate * 100).toFixed(1)}%`;
+      updateProgressStatus(warningMessage, 95, 'warning');
+      console.warn(warningMessage);
     }
 
     // Log error summary
@@ -389,15 +456,19 @@ function runNto1Sync() {
     }
   } catch (error) {
     const syncError = classifyError(error);
-    console.error(`Critical synchronization error: ${syncError.message}`, syncError);
+    const errorMessage = `Critical synchronization error: ${syncError.message}`;
+    updateProgressStatus(errorMessage, 95, 'error');
+    console.error(errorMessage, syncError);
 
     // Attempt recovery for critical errors
     if (syncError.recoverable) {
       const recovery = errorRecovery.attemptRecovery(syncError);
       if (recovery.success) {
         console.log(`Recovery attempt successful: ${recovery.message}`);
+        updateProgressStatus(`Recovery attempt successful: ${recovery.message}`, 97, 'warning');
       } else {
         console.error(`Recovery attempt failed: ${recovery.message}`);
+        updateProgressStatus(`Recovery attempt failed: ${recovery.message}`, 97, 'error');
       }
     }
 
@@ -414,10 +485,14 @@ function runNto1Sync() {
     };
 
     console.log('Synchronization summary:', JSON.stringify(finalStatus, null, 2));
+    updateProgressStatus('Synchronization complete', 100, syncSuccess ? 'success' : 'warning');
 
     // Store sync status for monitoring
     try {
       PropertiesService.getScriptProperties().setProperty('LAST_SYNC_STATUS', JSON.stringify(finalStatus));
+
+      // Store progress information for UI
+      finalizeProgressTracking(finalStatus);
     } catch (e) {
       console.error('Failed to store sync status:', e);
     }
@@ -756,4 +831,145 @@ function _resetSyncState() {
   resetSyncStateManager();
   PropertiesService.getScriptProperties().deleteProperty('LAST_SYNC_STATUS');
   console.log('Sync state has been reset.');
+}
+
+/**
+ * Progress tracking functions for detailed synchronization reporting
+ */
+
+/**
+ * Initializes progress tracking for the synchronization process
+ * @param {number} sourceCount - Number of source calendars
+ * @returns {object} Progress tracker object
+ */
+function initializeProgressTracking(sourceCount) {
+  const progressData = {
+    startTime: new Date(),
+    sourceCount: sourceCount,
+    currentSource: 0,
+    progress: 0,
+    status: 'Initializing...',
+    statusType: 'info',
+    logs: [],
+    completed: false
+  };
+
+  // Store initial progress data
+  PropertiesService.getScriptProperties().setProperty('SYNC_PROGRESS', JSON.stringify(progressData));
+
+  return progressData;
+}
+
+/**
+ * Updates the progress status during synchronization
+ * @param {string} status - Status message
+ * @param {number} progress - Progress percentage (0-100)
+ * @param {string} statusType - Status type (info, success, warning, error)
+ */
+function updateProgressStatus(status, progress, statusType = 'info') {
+  try {
+    const scriptProperties = PropertiesService.getScriptProperties();
+    const progressJson = scriptProperties.getProperty('SYNC_PROGRESS');
+
+    if (!progressJson) {
+      return;
+    }
+
+    const progressData = JSON.parse(progressJson);
+
+    // Update progress data
+    progressData.status = status;
+    progressData.progress = progress;
+    progressData.statusType = statusType || 'info';
+    progressData.lastUpdate = new Date().toISOString();
+
+    // Add to logs
+    progressData.logs.push({
+      time: new Date().toISOString(),
+      status: status,
+      progress: progress,
+      type: statusType || 'info'
+    });
+
+    // Keep only the last 100 log entries
+    if (progressData.logs.length > 100) {
+      progressData.logs = progressData.logs.slice(-100);
+    }
+
+    // Store updated progress data
+    scriptProperties.setProperty('SYNC_PROGRESS', JSON.stringify(progressData));
+  } catch (error) {
+    console.error('Error updating progress status:', error);
+  }
+}
+
+/**
+ * Updates progress for a specific source calendar
+ * @param {string} sourceId - ID of the source calendar
+ * @param {number} sourceIndex - Index of the source calendar
+ * @param {number} totalSources - Total number of source calendars
+ * @param {string} status - Status message
+ * @param {string} statusType - Status type (info, success, warning, error)
+ */
+function updateSourceProgress(sourceId, sourceIndex, totalSources, status, statusType = 'info') {
+  // Calculate overall progress (10-70% range for source syncing)
+  const baseProgress = 10; // Starting after target calendar loading
+  const sourceProgress = 60; // Range allocated for source syncing
+  const progress = baseProgress + (sourceProgress * (sourceIndex + 1) / totalSources);
+
+  // Create status message with source info
+  const sourceInfo = sourceId.length > 30 ? sourceId.substring(0, 27) + '...' : sourceId;
+  const statusMessage = `[${sourceIndex + 1}/${totalSources}] ${sourceInfo}: ${status}`;
+
+  updateProgressStatus(statusMessage, progress, statusType);
+}
+
+/**
+ * Finalizes progress tracking at the end of synchronization
+ * @param {object} finalStatus - Final synchronization status
+ */
+function finalizeProgressTracking(finalStatus) {
+  try {
+    const scriptProperties = PropertiesService.getScriptProperties();
+    const progressJson = scriptProperties.getProperty('SYNC_PROGRESS');
+
+    if (!progressJson) {
+      return;
+    }
+
+    const progressData = JSON.parse(progressJson);
+
+    // Update final status
+    progressData.completed = true;
+    progressData.endTime = new Date().toISOString();
+    progressData.duration = (new Date() - new Date(progressData.startTime)) / 1000; // Duration in seconds
+    progressData.finalStatus = finalStatus;
+
+    // Store final progress data
+    scriptProperties.setProperty('SYNC_PROGRESS', JSON.stringify(progressData));
+
+    // Keep history of recent syncs
+    const syncHistoryJson = scriptProperties.getProperty('SYNC_HISTORY') || '[]';
+    const syncHistory = JSON.parse(syncHistoryJson);
+
+    // Add current sync to history
+    syncHistory.unshift({
+      startTime: progressData.startTime,
+      endTime: progressData.endTime,
+      duration: progressData.duration,
+      success: finalStatus.success,
+      criticalErrors: finalStatus.criticalErrors,
+      recoverableErrors: finalStatus.recoverableErrors
+    });
+
+    // Keep only the last 10 sync operations
+    if (syncHistory.length > 10) {
+      syncHistory.length = 10;
+    }
+
+    // Store updated history
+    scriptProperties.setProperty('SYNC_HISTORY', JSON.stringify(syncHistory));
+  } catch (error) {
+    console.error('Error finalizing progress tracking:', error);
+  }
 }

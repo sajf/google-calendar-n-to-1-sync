@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendar N-to-1 Sync Progress</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+      background-color: #f8f9fa;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      color: #4285f4;
+      margin-top: 0;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    h2 {
+      color: #5f6368;
+      margin-top: 20px;
+    }
+    .progress-container {
+      margin: 20px 0;
+    }
+    .progress-bar {
+      height: 20px;
+      background-color: #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-fill {
+      height: 100%;
+      background-color: #4285f4;
+      border-radius: 10px;
+      transition: width 0.3s ease;
+    }
+    .progress-fill.success {
+      background-color: #34a853;
+    }
+    .progress-fill.warning {
+      background-color: #fbbc05;
+    }
+    .progress-fill.error {
+      background-color: #ea4335;
+    }
+    .progress-text {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 20px;
+      line-height: 20px;
+      text-align: center;
+      color: white;
+      font-weight: bold;
+      text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+    }
+    .status {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .status.info {
+      background-color: #e8f0fe;
+      color: #4285f4;
+    }
+    .status.success {
+      background-color: #e6f4ea;
+      color: #34a853;
+    }
+    .status.warning {
+      background-color: #fef7e0;
+      color: #f9ab00;
+    }
+    .status.error {
+      background-color: #fce8e6;
+      color: #ea4335;
+    }
+    .log-container {
+      margin-top: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      padding: 10px;
+    }
+    .log-entry {
+      margin-bottom: 5px;
+      padding: 5px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .log-entry.info {
+      background-color: #f8f9fa;
+    }
+    .log-entry.success {
+      background-color: #e6f4ea;
+    }
+    .log-entry.warning {
+      background-color: #fef7e0;
+    }
+    .log-entry.error {
+      background-color: #fce8e6;
+    }
+    .log-time {
+      color: #5f6368;
+      margin-right: 10px;
+    }
+    .summary {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #f8f9fa;
+      border-radius: 4px;
+    }
+    .summary-item {
+      margin-bottom: 5px;
+    }
+    .actions {
+      margin-top: 20px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .btn {
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn:hover {
+      background-color: #3367d6;
+    }
+    .btn-secondary {
+      background-color: #5f6368;
+    }
+    .btn-success {
+      background-color: #34a853;
+    }
+    .btn-warning {
+      background-color: #fbbc05;
+    }
+    .btn-danger {
+      background-color: #ea4335;
+    }
+    .history-container {
+      margin-top: 30px;
+    }
+    .history-item {
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      background-color: #f8f9fa;
+      border-left: 4px solid #4285f4;
+    }
+    .history-item.success {
+      border-left-color: #34a853;
+    }
+    .history-item.error {
+      border-left-color: #ea4335;
+    }
+    .history-time {
+      color: #5f6368;
+      font-size: 12px;
+    }
+    .history-status {
+      font-weight: bold;
+      margin-top: 5px;
+    }
+    .auto-refresh {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .auto-refresh input {
+      margin-right: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Calendar N-to-1 Sync Progress</h1>
+
+    <div class="auto-refresh">
+      <input type="checkbox" id="autoRefresh" checked>
+      <label for="autoRefresh">Auto-refresh (every 5 seconds)</label>
+    </div>
+
+    <div id="currentProgress">
+      <div class="progress-container">
+        <h2>Current Synchronization</h2>
+        <div class="progress-bar">
+          <div id="progressFill" class="progress-fill" style="width: 0%;">
+            <div id="progressText" class="progress-text">0%</div>
+          </div>
+        </div>
+        <div id="statusMessage" class="status info">Waiting for synchronization to start...</div>
+      </div>
+
+      <div class="log-container" id="logContainer">
+        <div class="log-entry info">
+          <span class="log-time">Loading logs...</span>
+        </div>
+      </div>
+
+      <div id="syncSummary" class="summary" style="display: none;">
+        <h3>Synchronization Summary</h3>
+        <div class="summary-item" id="syncDuration"></div>
+        <div class="summary-item" id="syncResult"></div>
+        <div class="summary-item" id="syncErrors"></div>
+      </div>
+
+      <div class="actions">
+        <div>
+          <button id="refreshBtn" class="btn">Refresh</button>
+          <button id="configBtn" class="btn btn-secondary">Configuration</button>
+        </div>
+        <button id="syncNowBtn" class="btn btn-success">Run Sync Now</button>
+      </div>
+    </div>
+
+    <div class="history-container">
+      <h2>Sync History</h2>
+      <div id="syncHistory">
+        <div class="history-item">
+          <div class="history-time">Loading history...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize variables
+    let refreshInterval;
+    let isRunning = false;
+
+    // DOM elements
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const statusMessage = document.getElementById('statusMessage');
+    const logContainer = document.getElementById('logContainer');
+    const syncSummary = document.getElementById('syncSummary');
+    const syncDuration = document.getElementById('syncDuration');
+    const syncResult = document.getElementById('syncResult');
+    const syncErrors = document.getElementById('syncErrors');
+    const syncHistory = document.getElementById('syncHistory');
+    const autoRefreshCheckbox = document.getElementById('autoRefresh');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const configBtn = document.getElementById('configBtn');
+    const syncNowBtn = document.getElementById('syncNowBtn');
+
+    // Event listeners
+    document.addEventListener('DOMContentLoaded', function() {
+      loadProgress();
+      loadSyncHistory();
+
+      // Set up auto-refresh
+      autoRefreshCheckbox.addEventListener('change', toggleAutoRefresh);
+      toggleAutoRefresh();
+
+      // Button event listeners
+      refreshBtn.addEventListener('click', function() {
+        loadProgress();
+        loadSyncHistory();
+      });
+
+      configBtn.addEventListener('click', function() {
+        google.script.run.showConfigurationUI();
+      });
+
+      syncNowBtn.addEventListener('click', function() {
+        if (confirm('Are you sure you want to start a new synchronization?')) {
+          syncNowBtn.disabled = true;
+          syncNowBtn.textContent = 'Starting...';
+
+          google.script.run
+            .withSuccessHandler(function() {
+              loadProgress();
+              syncNowBtn.disabled = false;
+              syncNowBtn.textContent = 'Run Sync Now';
+            })
+            .withFailureHandler(function(error) {
+              alert('Error starting synchronization: ' + error.message);
+              syncNowBtn.disabled = false;
+              syncNowBtn.textContent = 'Run Sync Now';
+            })
+            .runNto1Sync();
+        }
+      });
+    });
+
+    // Toggle auto-refresh
+    function toggleAutoRefresh() {
+      clearInterval(refreshInterval);
+
+      if (autoRefreshCheckbox.checked) {
+        refreshInterval = setInterval(function() {
+          if (isRunning) {
+            loadProgress();
+          }
+        }, 5000);
+      }
+    }
+
+    // Load current progress
+    function loadProgress() {
+      google.script.run
+        .withSuccessHandler(updateProgressUI)
+        .withFailureHandler(handleError)
+        .getSyncProgress();
+    }
+
+    // Load sync history
+    function loadSyncHistory() {
+      google.script.run
+        .withSuccessHandler(updateHistoryUI)
+        .withFailureHandler(handleError)
+        .getSyncHistory();
+    }
+
+    // Update progress UI
+    function updateProgressUI(progressData) {
+      if (!progressData) {
+        statusMessage.textContent = 'No synchronization data available';
+        statusMessage.className = 'status info';
+        return;
+      }
+
+      // Update progress bar
+      const progress = progressData.progress || 0;
+      progressFill.style.width = progress + '%';
+      progressText.textContent = progress + '%';
+
+      // Update status type
+      const statusType = progressData.statusType || 'info';
+      progressFill.className = 'progress-fill ' + statusType;
+
+      // Update status message
+      statusMessage.textContent = progressData.status || 'No status available';
+      statusMessage.className = 'status ' + statusType;
+
+      // Update logs
+      logContainer.innerHTML = '';
+      if (progressData.logs && progressData.logs.length > 0) {
+        progressData.logs.forEach(function(log) {
+          const logEntry = document.createElement('div');
+          logEntry.className = 'log-entry ' + (log.type || 'info');
+
+          const logTime = document.createElement('span');
+          logTime.className = 'log-time';
+          logTime.textContent = new Date(log.time).toLocaleTimeString();
+
+          logEntry.appendChild(logTime);
+          logEntry.appendChild(document.createTextNode(log.status));
+
+          logContainer.appendChild(logEntry);
+        });
+
+        // Scroll to bottom
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+
+      // Check if sync is running
+      isRunning = !progressData.completed;
+
+      // Update summary if completed
+      if (progressData.completed) {
+        syncSummary.style.display = 'block';
+
+        // Calculate duration
+        const duration = progressData.duration || 0;
+        const minutes = Math.floor(duration / 60);
+        const seconds = Math.floor(duration % 60);
+        syncDuration.textContent = `Duration: ${minutes}m ${seconds}s`;
+
+        // Show result
+        if (progressData.finalStatus) {
+          const success = progressData.finalStatus.success;
+          syncResult.textContent = `Result: ${success ? 'Success' : 'Failed'}`;
+          syncResult.style.color = success ? '#34a853' : '#ea4335';
+
+          // Show errors
+          const criticalErrors = progressData.finalStatus.criticalErrors || 0;
+          const recoverableErrors = progressData.finalStatus.recoverableErrors || 0;
+          syncErrors.textContent = `Errors: ${criticalErrors} critical, ${recoverableErrors} recoverable`;
+        }
+      } else {
+        syncSummary.style.display = 'none';
+      }
+    }
+
+    // Update history UI
+    function updateHistoryUI(history) {
+      syncHistory.innerHTML = '';
+
+      if (!history || history.length === 0) {
+        const historyItem = document.createElement('div');
+        historyItem.className = 'history-item';
+        historyItem.textContent = 'No synchronization history available';
+        syncHistory.appendChild(historyItem);
+        return;
+      }
+
+      history.forEach(function(item) {
+        const historyItem = document.createElement('div');
+        historyItem.className = 'history-item ' + (item.success ? 'success' : 'error');
+
+        const historyTime = document.createElement('div');
+        historyTime.className = 'history-time';
+        const startTime = new Date(item.startTime);
+        historyTime.textContent = startTime.toLocaleString();
+
+        const historyStatus = document.createElement('div');
+        historyStatus.className = 'history-status';
+
+        // Calculate duration
+        const duration = item.duration || 0;
+        const minutes = Math.floor(duration / 60);
+        const seconds = Math.floor(duration % 60);
+
+        historyStatus.textContent = `${item.success ? 'Success' : 'Failed'} - Duration: ${minutes}m ${seconds}s - Errors: ${item.criticalErrors} critical, ${item.recoverableErrors} recoverable`;
+
+        historyItem.appendChild(historyTime);
+        historyItem.appendChild(historyStatus);
+
+        syncHistory.appendChild(historyItem);
+      });
+    }
+
+    // Handle errors
+    function handleError(error) {
+      console.error('Error:', error);
+      statusMessage.textContent = 'Error loading data: ' + error.message;
+      statusMessage.className = 'status error';
+    }
+  </script>
+</body>
+</html>

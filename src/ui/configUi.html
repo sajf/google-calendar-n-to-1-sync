@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendar N-to-1 Sync Configuration</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+      background-color: #f8f9fa;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      color: #4285f4;
+      margin-top: 0;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    h2 {
+      color: #5f6368;
+      margin-top: 20px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input[type="text"], select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .calendar-list {
+      margin-bottom: 15px;
+    }
+    .calendar-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .calendar-item input {
+      flex-grow: 1;
+      margin-right: 8px;
+    }
+    .btn {
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+    }
+    .btn:hover {
+      background-color: #3367d6;
+    }
+    .btn-secondary {
+      background-color: #5f6368;
+    }
+    .btn-danger {
+      background-color: #ea4335;
+    }
+    .btn-success {
+      background-color: #34a853;
+    }
+    .actions {
+      margin-top: 20px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .status.success {
+      background-color: #e6f4ea;
+      color: #34a853;
+    }
+    .status.error {
+      background-color: #fce8e6;
+      color: #ea4335;
+    }
+    .help-text {
+      font-size: 12px;
+      color: #5f6368;
+      margin-top: 4px;
+    }
+    .calendar-controls {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .calendar-controls button {
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+    .advanced-settings {
+      margin-top: 20px;
+      border-top: 1px solid #eee;
+      padding-top: 20px;
+    }
+    .advanced-toggle {
+      cursor: pointer;
+      color: #4285f4;
+      margin-bottom: 10px;
+    }
+    .advanced-fields {
+      display: none;
+    }
+    .advanced-fields.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Calendar N-to-1 Sync Configuration</h1>
+
+    <div id="status" class="status" style="display: none;"></div>
+
+    <div class="form-group">
+      <h2>Source Calendars</h2>
+      <p>Add the calendars you want to sync from:</p>
+
+      <div class="calendar-controls">
+        <button class="btn btn-secondary" id="loadMyCalendars">Load My Calendars</button>
+        <button class="btn btn-secondary" id="addSourceCalendar">+ Add Calendar</button>
+      </div>
+
+      <div id="sourceCalendars" class="calendar-list">
+        <!-- Source calendars will be added here -->
+      </div>
+    </div>
+
+    <div class="form-group">
+      <h2>Target Calendar</h2>
+      <p>Select the calendar where all events will be aggregated:</p>
+
+      <div class="calendar-item">
+        <input type="text" id="targetCalendar" placeholder="Target Calendar ID">
+        <button class="btn btn-secondary" id="selectTargetCalendar">Select</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <h2>Sync Settings</h2>
+
+      <div class="form-group">
+        <label for="daysBack">Days Back:</label>
+        <input type="number" id="daysBack" min="1" max="365">
+        <div class="help-text">How many days in the past to synchronize</div>
+      </div>
+
+      <div class="form-group">
+        <label for="daysForward">Days Forward:</label>
+        <input type="number" id="daysForward" min="1" max="365">
+        <div class="help-text">How many days in the future to synchronize</div>
+      </div>
+    </div>
+
+    <div class="advanced-settings">
+      <div class="advanced-toggle" id="advancedToggle">
+        ▶ Advanced Settings
+      </div>
+
+      <div class="advanced-fields" id="advancedFields">
+        <div class="form-group">
+          <label for="loopDetectionWindow">Loop Detection Window (ms):</label>
+          <input type="number" id="loopDetectionWindow" min="1000">
+          <div class="help-text">Time window for detecting sync loops (milliseconds)</div>
+        </div>
+
+        <div class="form-group">
+          <label for="maxSyncAttempts">Max Sync Attempts:</label>
+          <input type="number" id="maxSyncAttempts" min="1" max="10">
+          <div class="help-text">Maximum sync attempts before marking as potential loop</div>
+        </div>
+
+        <div class="form-group">
+          <label for="minUpdateInterval">Min Update Interval (ms):</label>
+          <input type="number" id="minUpdateInterval" min="1000">
+          <div class="help-text">Minimum time between updates (milliseconds)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-danger" id="resetConfig">Reset</button>
+      <button class="btn btn-secondary" id="progressBtn">View Progress</button>
+      <button class="btn btn-success" id="saveConfig">Save Configuration</button>
+    </div>
+  </div>
+
+  <script>
+    // Toggle advanced settings
+    document.getElementById('advancedToggle').addEventListener('click', function() {
+      const advancedFields = document.getElementById('advancedFields');
+      advancedFields.classList.toggle('show');
+      this.textContent = advancedFields.classList.contains('show') ? '▼ Advanced Settings' : '▶ Advanced Settings';
+    });
+
+    // Add source calendar field
+    document.getElementById('addSourceCalendar').addEventListener('click', function() {
+      addSourceCalendarField();
+    });
+
+    // Load user's calendars
+    document.getElementById('loadMyCalendars').addEventListener('click', function() {
+      this.disabled = true;
+      this.textContent = 'Loading...';
+
+      google.script.run
+        .withSuccessHandler(function(calendars) {
+          document.getElementById('loadMyCalendars').disabled = false;
+          document.getElementById('loadMyCalendars').textContent = 'Load My Calendars';
+
+          if (calendars && calendars.length) {
+            showCalendarSelector(calendars);
+          } else {
+            showStatus('No calendars found or access denied', 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('loadMyCalendars').disabled = false;
+          document.getElementById('loadMyCalendars').textContent = 'Load My Calendars';
+          showStatus('Error loading calendars: ' + error.message, 'error');
+        })
+        .getUserCalendars();
+    });
+
+    // Select target calendar
+    document.getElementById('selectTargetCalendar').addEventListener('click', function() {
+      google.script.run
+        .withSuccessHandler(function(calendars) {
+          if (calendars && calendars.length) {
+            showCalendarSelector(calendars, true);
+          } else {
+            showStatus('No calendars found or access denied', 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          showStatus('Error loading calendars: ' + error.message, 'error');
+        })
+        .getUserCalendars();
+    });
+
+    // Save configuration
+    document.getElementById('saveConfig').addEventListener('click', function() {
+      const sourceCalendars = [];
+      const sourceInputs = document.querySelectorAll('#sourceCalendars input');
+
+      sourceInputs.forEach(function(input) {
+        if (input.value.trim()) {
+          sourceCalendars.push(input.value.trim());
+        }
+      });
+
+      const config = {
+        sourceCalendarIds: sourceCalendars,
+        targetCalendarId: document.getElementById('targetCalendar').value.trim(),
+        syncConfig: {
+          daysBack: parseInt(document.getElementById('daysBack').value) || 14,
+          daysForward: parseInt(document.getElementById('daysForward').value) || 90,
+          loopDetectionWindow: parseInt(document.getElementById('loopDetectionWindow').value) || 300000,
+          maxSyncAttempts: parseInt(document.getElementById('maxSyncAttempts').value) || 3,
+          minUpdateInterval: parseInt(document.getElementById('minUpdateInterval').value) || 60000
+        }
+      };
+
+      if (!config.targetCalendarId) {
+        showStatus('Please specify a target calendar', 'error');
+        return;
+      }
+
+      if (sourceCalendars.length === 0) {
+        showStatus('Please add at least one source calendar', 'error');
+        return;
+      }
+
+      this.disabled = true;
+      this.textContent = 'Saving...';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          document.getElementById('saveConfig').disabled = false;
+          document.getElementById('saveConfig').textContent = 'Save Configuration';
+
+          if (result.success) {
+            showStatus('Configuration saved successfully!', 'success');
+          } else {
+            showStatus('Error saving configuration: ' + result.error, 'error');
+          }
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('saveConfig').disabled = false;
+          document.getElementById('saveConfig').textContent = 'Save Configuration';
+          showStatus('Error saving configuration: ' + error.message, 'error');
+        })
+        .saveConfiguration(config);
+    });
+
+    // Reset configuration
+    document.getElementById('resetConfig').addEventListener('click', function() {
+      if (confirm('Are you sure you want to reset the configuration?')) {
+        document.getElementById('sourceCalendars').innerHTML = '';
+        document.getElementById('targetCalendar').value = '';
+        document.getElementById('daysBack').value = '14';
+        document.getElementById('daysForward').value = '90';
+        document.getElementById('loopDetectionWindow').value = '300000';
+        document.getElementById('maxSyncAttempts').value = '3';
+        document.getElementById('minUpdateInterval').value = '60000';
+
+        addSourceCalendarField();
+      }
+    });
+
+    // View progress
+    document.getElementById('progressBtn').addEventListener('click', function() {
+      google.script.run.showProgressUI();
+    });
+
+    // Helper functions
+    function addSourceCalendarField(value = '') {
+      const container = document.createElement('div');
+      container.className = 'calendar-item';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Source Calendar ID';
+      input.value = value;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn btn-danger';
+      removeBtn.textContent = 'Remove';
+      removeBtn.addEventListener('click', function() {
+        container.remove();
+      });
+
+      container.appendChild(input);
+      container.appendChild(removeBtn);
+
+      document.getElementById('sourceCalendars').appendChild(container);
+    }
+
+    function showStatus(message, type) {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = message;
+      statusEl.className = 'status ' + type;
+      statusEl.style.display = 'block';
+
+      setTimeout(function() {
+        statusEl.style.display = 'none';
+      }, 5000);
+    }
+
+    function showCalendarSelector(calendars, isTarget = false) {
+      // Create modal for calendar selection
+      const modal = document.createElement('div');
+      modal.style.position = 'fixed';
+      modal.style.top = '0';
+      modal.style.left = '0';
+      modal.style.width = '100%';
+      modal.style.height = '100%';
+      modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+      modal.style.display = 'flex';
+      modal.style.justifyContent = 'center';
+      modal.style.alignItems = 'center';
+      modal.style.zIndex = '1000';
+
+      const modalContent = document.createElement('div');
+      modalContent.style.backgroundColor = 'white';
+      modalContent.style.padding = '20px';
+      modalContent.style.borderRadius = '8px';
+      modalContent.style.maxWidth = '500px';
+      modalContent.style.width = '100%';
+      modalContent.style.maxHeight = '80vh';
+      modalContent.style.overflow = 'auto';
+
+      const heading = document.createElement('h2');
+      heading.textContent = isTarget ? 'Select Target Calendar' : 'Select Source Calendars';
+      modalContent.appendChild(heading);
+
+      const calendarList = document.createElement('div');
+      calendars.forEach(function(calendar) {
+        const calItem = document.createElement('div');
+        calItem.style.padding = '10px';
+        calItem.style.borderBottom = '1px solid #eee';
+        calItem.style.cursor = 'pointer';
+
+        calItem.innerHTML = `
+          <strong>${calendar.name}</strong><br>
+          <small>${calendar.id}</small>
+        `;
+
+        calItem.addEventListener('click', function() {
+          if (isTarget) {
+            document.getElementById('targetCalendar').value = calendar.id;
+          } else {
+            addSourceCalendarField(calendar.id);
+          }
+          document.body.removeChild(modal);
+        });
+
+        calItem.addEventListener('mouseover', function() {
+          this.style.backgroundColor = '#f5f5f5';
+        });
+
+        calItem.addEventListener('mouseout', function() {
+          this.style.backgroundColor = 'white';
+        });
+
+        calendarList.appendChild(calItem);
+      });
+
+      modalContent.appendChild(calendarList);
+
+      const closeButton = document.createElement('button');
+      closeButton.className = 'btn';
+      closeButton.textContent = 'Close';
+      closeButton.style.marginTop = '15px';
+      closeButton.addEventListener('click', function() {
+        document.body.removeChild(modal);
+      });
+
+      modalContent.appendChild(closeButton);
+      modal.appendChild(modalContent);
+      document.body.appendChild(modal);
+    }
+
+    // Initialize the form
+    function initializeForm() {
+      // Add first source calendar field
+      addSourceCalendarField();
+
+      // Load current configuration
+      google.script.run
+        .withSuccessHandler(function(config) {
+          if (config) {
+            // Clear existing source calendar fields
+            document.getElementById('sourceCalendars').innerHTML = '';
+
+            // Add source calendars
+            if (config.sourceCalendarIds && config.sourceCalendarIds.length) {
+              config.sourceCalendarIds.forEach(function(id) {
+                addSourceCalendarField(id);
+              });
+            } else {
+              addSourceCalendarField();
+            }
+
+            // Set target calendar
+            if (config.targetCalendarId) {
+              document.getElementById('targetCalendar').value = config.targetCalendarId;
+            }
+
+            // Set sync config values
+            if (config.syncConfig) {
+              document.getElementById('daysBack').value = config.syncConfig.daysBack || 14;
+              document.getElementById('daysForward').value = config.syncConfig.daysForward || 90;
+              document.getElementById('loopDetectionWindow').value = config.syncConfig.loopDetectionWindow || 300000;
+              document.getElementById('maxSyncAttempts').value = config.syncConfig.maxSyncAttempts || 3;
+              document.getElementById('minUpdateInterval').value = config.syncConfig.minUpdateInterval || 60000;
+            }
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error loading configuration:', error);
+        })
+        .getConfiguration();
+    }
+
+    // Initialize the form when the page loads
+    google.script.loaded = function() {
+      initializeForm();
+    };
+  </script>
+</body>
+</html>
