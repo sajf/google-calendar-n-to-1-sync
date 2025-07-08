@@ -240,6 +240,10 @@ let syncStateManager;
 /**
  * Gets or creates the global sync state manager
  */
+ 
+/**
+ *
+ */
 function getSyncStateManager() {
   if (!syncStateManager) {
     syncStateManager = new SyncStateManager();
@@ -250,12 +254,18 @@ function getSyncStateManager() {
 /**
  * Resets the sync state manager (useful for testing)
  */
+ 
+/**
+ *
+ */
 function resetSyncStateManager() {
   syncStateManager = new SyncStateManager();
 }
 
 // For Node.js testing environment
-if (typeof module !== 'undefined') {
+// eslint-disable-next-line no-undef
+if (typeof module !== 'undefined' && module.exports) {
+  // eslint-disable-next-line no-undef
   module.exports = {
     SyncStateManager,
     getSyncStateManager,

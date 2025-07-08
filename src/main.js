@@ -3,6 +3,17 @@
  * Contains the core orchestration and user-facing functions.
  */
 
+// Import configuration variables
+/* global SOURCE_CALENDAR_IDS, TARGET_CALENDAR_ID, SYNC_CONFIG */
+
+// Constants for magic numbers
+const QUOTA_WARNING_THRESHOLD = 0.8;  // 80% of quota
+const QUOTA_CRITICAL_THRESHOLD = 0.9; // 90% of quota
+const QUOTA_LOW_THRESHOLD = 0.1;      // 10% of quota
+const MAX_BACKOFF_DELAY = 300000;     // 5 minutes in milliseconds
+const LOCK_TIMEOUT = 15 * 60 * 1000;  // 15 minutes in milliseconds
+const TRIGGER_INTERVAL_MINUTES = 15;  // Run sync every 15 minutes
+
 /**
  * Custom error classes for better error handling
  */
@@ -110,8 +121,9 @@ class ErrorRecoveryManager {
 
   /**
    * Determines if an error should be retried
-   * @param error
-   * @param operationKey
+   * @param {Error} error - The error to check for retry
+   * @param {string} operationKey - Unique key identifying the operation
+   * @returns {boolean} True if the error should be retried, false otherwise
    */
   shouldRetry(error, operationKey) {
     if (!error.retryable) {
@@ -124,7 +136,8 @@ class ErrorRecoveryManager {
 
   /**
    * Records a retry attempt
-   * @param operationKey
+   * @param {string} operationKey - Unique key identifying the operation
+   * @returns {void}
    */
   recordRetry(operationKey) {
     const attempts = this.retryAttempts.get(operationKey) || 0;
@@ -133,7 +146,8 @@ class ErrorRecoveryManager {
 
   /**
    * Calculates delay for exponential backoff
-   * @param operationKey
+   * @param {string} operationKey - Unique key identifying the operation
+   * @returns {number} The calculated delay in milliseconds
    */
   getRetryDelay(operationKey) {
     const attempts = this.retryAttempts.get(operationKey) || 0;
@@ -142,7 +156,8 @@ class ErrorRecoveryManager {
 
   /**
    * Clears retry history for successful operations
-   * @param operationKey
+   * @param {string} operationKey - Unique key identifying the operation
+   * @returns {void}
    */
   clearRetryHistory(operationKey) {
     this.retryAttempts.delete(operationKey);
@@ -150,7 +165,8 @@ class ErrorRecoveryManager {
 
   /**
    * Attempts recovery for specific error types
-   * @param error
+   * @param {Error} error - The error to attempt recovery for
+   * @returns {object} Recovery result with success status and message
    */
   attemptRecovery(error) {
     switch (error.type) {
@@ -210,7 +226,7 @@ class ErrorRecoveryManager {
     // Calculate appropriate delay based on current usage
     let delay = this.baseDelay;
 
-    if (apiStats.requestCount >= apiStats.maxRequests * 0.9) {
+    if (apiStats.requestCount >= apiStats.maxRequests * QUOTA_CRITICAL_THRESHOLD) {
       // Near quota limit - wait for quota reset
       delay = Math.max(apiStats.quotaResetIn + 1000, this.baseDelay * 5);
       console.log(
@@ -218,7 +234,7 @@ class ErrorRecoveryManager {
       );
     } else {
       // Standard exponential backoff
-      delay = Math.min(this.baseDelay * 4, 300000); // Max 5 minutes
+      delay = Math.min(this.baseDelay * 4, MAX_BACKOFF_DELAY);
       console.log(`Quota exceeded, implementing exponential backoff: ${delay}ms`);
     }
 
@@ -228,18 +244,19 @@ class ErrorRecoveryManager {
 }
 // Enhanced quota monitoring function
 /**
- *
+ * Monitors API quota usage and logs warnings when approaching limits
+ * @returns {object} Current API usage statistics
  */
 function _monitorApiQuota() {
   const apiStats = getApiUsageStats();
 
   // Log warning if approaching quota limits
-  if (apiStats.requestCount >= apiStats.maxRequests * 0.8) {
+  if (apiStats.requestCount >= apiStats.maxRequests * QUOTA_WARNING_THRESHOLD) {
     console.warn(`⚠️  API quota warning: ${apiStats.requestCount}/${apiStats.maxRequests} requests used`);
   }
 
   // Recommend sync frequency adjustment if quota is consistently high
-  if (apiStats.requestCount >= apiStats.maxRequests * 0.9) {
+  if (apiStats.requestCount >= apiStats.maxRequests * QUOTA_CRITICAL_THRESHOLD) {
     console.warn('📊 Consider reducing sync frequency or increasing batch delays to stay within quota limits');
   }
 
@@ -252,7 +269,7 @@ function _monitorApiQuota() {
  */
 function runNto1Sync() {
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(15 * 60 * 1000)) {
+  if (!lock.tryLock(LOCK_TIMEOUT)) {
     console.warn('Another synchronization instance is already running. Skipping.');
     return;
   }
@@ -409,10 +426,11 @@ function runNto1Sync() {
 
 /**
  * Classifies generic errors into specific sync error types
- * @param error
- * @param sourceId
- * @param targetId
- * @param eventId
+ * @param {Error} error - The error to classify
+ * @param {string} sourceId - ID of the source calendar
+ * @param {string} targetId - ID of the target calendar
+ * @param {string} eventId - ID of the event that caused the error
+ * @returns {SyncError} A specific sync error type
  */
 function classifyError(error, sourceId = null, targetId = null, eventId = null) {
   const message = error.message || error.toString();
@@ -439,11 +457,12 @@ function classifyError(error, sourceId = null, targetId = null, eventId = null) 
 
 /**
  * Synchronizes one source calendar to the target calendar.
- * @param sourceId
- * @param targetId
- * @param startDate
- * @param endDate
- * @param allTargetEvents
+ * @param {string} sourceId - ID of the source calendar
+ * @param {string} targetId - ID of the target calendar
+ * @param {Date} startDate - Start date for synchronization
+ * @param {Date} endDate - End date for synchronization
+ * @param {Array} allTargetEvents - All events in the target calendar
+ * @returns {void}
  */
 function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEvents) {
   console.log(`Processing: ${sourceId} -> ${targetId}`);
@@ -460,7 +479,7 @@ function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEve
 
   let processedEvents = 0;
   let errorCount = 0;
-  const maxErrorThreshold = Math.max(5, Math.floor(sourceEvents.length * 0.1)); // 10% or min 5 errors
+  const maxErrorThreshold = Math.max(5, Math.floor(sourceEvents.length * QUOTA_LOW_THRESHOLD)); // 10% or min 5 errors
 
   sourceEvents.forEach(sourceEvent => {
     try {
@@ -523,9 +542,10 @@ function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEve
 
 /**
  * Synchronizes changes from the target calendar back to the sources.
- * @param targetId
- * @param sourceIds
- * @param targetEvents
+ * @param {string} targetId - ID of the target calendar
+ * @param {Array<string>} sourceIds - IDs of the source calendars
+ * @param {Array} targetEvents - Events in the target calendar
+ * @returns {void}
  */
 function syncTargetToSources(targetId, sourceIds, targetEvents) {
   console.log(`Processing reverse synchronization: ${targetId} -> Sources`);
@@ -533,7 +553,7 @@ function syncTargetToSources(targetId, sourceIds, targetEvents) {
 
   let processedEvents = 0;
   let errorCount = 0;
-  const maxErrorThreshold = Math.max(5, Math.floor(targetEvents.length * 0.1));
+  const maxErrorThreshold = Math.max(5, Math.floor(targetEvents.length * QUOTA_LOW_THRESHOLD));
 
   targetEvents.forEach(targetEvent => {
     try {
@@ -629,7 +649,8 @@ function syncTargetToSources(targetId, sourceIds, targetEvents) {
 // --- USER MANAGEMENT FUNCTIONS ---
 
 /**
- *
+ * Sets up an automatic trigger to run the sync process at regular intervals
+ * @returns {void}
  */
 function _setupAutomaticSync() {
   const triggers = ScriptApp.getProjectTriggers();
@@ -638,12 +659,13 @@ function _setupAutomaticSync() {
       ScriptApp.deleteTrigger(trigger);
     }
   });
-  ScriptApp.newTrigger('runNto1Sync').timeBased().everyMinutes(15).create();
-  console.log('Automatic trigger for N->1 sync set to run every 15 minutes.');
+  ScriptApp.newTrigger('runNto1Sync').timeBased().everyMinutes(TRIGGER_INTERVAL_MINUTES).create();
+  console.log(`Automatic trigger for N->1 sync set to run every ${TRIGGER_INTERVAL_MINUTES} minutes.`);
 }
 
 /**
- *
+ * Removes the automatic trigger for the sync process
+ * @returns {void}
  */
 function _removeAutomaticSync() {
   const triggers = ScriptApp.getProjectTriggers();
@@ -656,7 +678,8 @@ function _removeAutomaticSync() {
 }
 
 /**
- *
+ * Tests access to all configured calendars to verify permissions
+ * @returns {boolean} True if all calendars are accessible, false otherwise
  */
 function _testConfiguration() {
   console.log('Testing configuration...');
@@ -687,6 +710,7 @@ function _testConfiguration() {
 
 /**
  * Utility function to get sync statistics
+ * @returns {object} Statistics about the sync operations
  */
 function _getSyncStatistics() {
   const syncStateManager = getSyncStateManager();
