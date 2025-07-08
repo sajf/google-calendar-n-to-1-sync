@@ -8,7 +8,8 @@ module.exports = [
     ignores: ['.prettierrc.js', 'eslint.config.js', 'jest.config.js', 'node_modules/**', 'dist/**', 'build/**']
   },
 
-  // Base configuration for Google Apps Script files
+
+// Base configuration for Google Apps Script files
   {
     files: ['**/*.js'],
     languageOptions: {
@@ -117,9 +118,9 @@ module.exports = [
           SwitchCase: 1,
           VariableDeclarator: 1,
           outerIIFEBody: 1,
-          FunctionDeclaration: { parameters: 1, body: 1 },
-          FunctionExpression: { parameters: 1, body: 1 },
-          CallExpression: { arguments: 1 },
+          FunctionDeclaration: {parameters: 1, body: 1},
+          FunctionExpression: {parameters: 1, body: 1},
+          CallExpression: {arguments: 1},
           ArrayExpression: 1,
           ObjectExpression: 1
         }
@@ -134,11 +135,11 @@ module.exports = [
       ],
       semi: ['error', 'always'],
       'comma-dangle': ['error', 'never'],
-      'brace-style': ['error', '1tbs', { allowSingleLine: true }],
+      'brace-style': ['error', '1tbs', {allowSingleLine: true}],
       'space-before-blocks': 'error',
-      'keyword-spacing': ['error', { before: true, after: true }],
+      'keyword-spacing': ['error', {before: true, after: true}],
       'space-infix-ops': 'error',
-      'space-unary-ops': ['error', { words: true, nonwords: false }],
+      'space-unary-ops': ['error', {words: true, nonwords: false}],
       'object-curly-spacing': ['error', 'always'],
       'array-bracket-spacing': ['error', 'never'],
       'computed-property-spacing': ['error', 'never'],
@@ -153,12 +154,12 @@ module.exports = [
           maxBOF: 0
         }
       ],
-      'comma-spacing': ['error', { before: false, after: true }],
-      'key-spacing': ['error', { beforeColon: false, afterColon: true }],
-      'semi-spacing': ['error', { before: false, after: true }],
+      'comma-spacing': ['error', {before: false, after: true}],
+      'key-spacing': ['error', {beforeColon: false, afterColon: true}],
+      'semi-spacing': ['error', {before: false, after: true}],
 
       // Function Rules
-      'func-style': ['error', 'declaration', { allowArrowFunctions: true }],
+      'func-style': ['error', 'declaration', {allowArrowFunctions: true}],
       'max-params': ['warn', 6],
       'max-len': [
         'warn',
@@ -192,7 +193,7 @@ module.exports = [
       'no-caller': 'error',
       'no-case-declarations': 'error',
       'no-else-return': 'error',
-      'no-empty-function': ['error', { allow: ['constructors'] }],
+      'no-empty-function': ['error', {allow: ['constructors']}],
       'no-empty-pattern': 'error',
       'no-fallthrough': 'error',
       'no-floating-decimal': 'error',
@@ -214,7 +215,7 @@ module.exports = [
       'no-new-func': 'error',
       'no-new-wrappers': 'error',
       'no-octal-escape': 'error',
-      'no-param-reassign': ['error', { props: false }],
+      'no-param-reassign': ['error', {props: false}],
       'no-return-assign': 'error',
       'no-return-await': 'error',
       'no-self-assign': 'error',
