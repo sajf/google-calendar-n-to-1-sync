@@ -5,6 +5,7 @@
  */
 
 // List of source calendar IDs from which events will be aggregated.
+/* eslint-disable-next-line no-unused-vars */
 const SOURCE_CALENDAR_IDS = [
   'source-a-id@group.calendar.google.com',
   'source-b-id@group.calendar.google.com'
@@ -12,9 +13,11 @@ const SOURCE_CALENDAR_IDS = [
 ];
 
 // ID of the target (aggregated) calendar.
+/* eslint-disable-next-line no-unused-vars */
 const TARGET_CALENDAR_ID = 'target-id@group.calendar.google.com';
 
 // Time window settings for synchronization.
+/* eslint-disable-next-line no-unused-vars */
 const SYNC_CONFIG = {
   DAYS_BACK: 14, // How many days back to synchronize.
   DAYS_FORWARD: 90, // How many days forward to synchronize.

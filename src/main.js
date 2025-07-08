@@ -8,11 +8,11 @@
  */
 class SyncError extends Error {
   /**
-   *
-   * @param message
-   * @param type
-   * @param recoverable
-   * @param retryable
+   * Creates a new SyncError instance
+   * @param {string} message - Error message
+   * @param {string} type - Type of error
+   * @param {boolean} recoverable - Whether the error is recoverable
+   * @param {boolean} retryable - Whether the operation can be retried
    */
   constructor(message, type = 'UNKNOWN', recoverable = false, retryable = false) {
     super(message);
@@ -25,13 +25,13 @@ class SyncError extends Error {
 }
 
 /**
- *
+ * Error thrown when there are issues accessing a calendar
  */
 class CalendarAccessError extends SyncError {
   /**
-   *
-   * @param message
-   * @param calendarId
+   * Creates a new CalendarAccessError instance
+   * @param {string} message - Error message
+   * @param {string} calendarId - ID of the calendar that couldn't be accessed
    */
   constructor(message, calendarId) {
     super(message, 'CALENDAR_ACCESS', false, true);
@@ -41,12 +41,12 @@ class CalendarAccessError extends SyncError {
 }
 
 /**
- *
+ * Error thrown when API quota limits are exceeded
  */
 class QuotaExceededError extends SyncError {
   /**
-   *
-   * @param message
+   * Creates a new QuotaExceededError instance
+   * @param {string} message - Error message
    */
   constructor(message) {
     super(message, 'QUOTA_EXCEEDED', true, true);
@@ -55,15 +55,15 @@ class QuotaExceededError extends SyncError {
 }
 
 /**
- *
+ * Error thrown when there are issues synchronizing a specific event
  */
 class EventSyncError extends SyncError {
   /**
-   *
-   * @param message
-   * @param eventId
-   * @param sourceCalendarId
-   * @param targetCalendarId
+   * Creates a new EventSyncError instance
+   * @param {string} message - Error message
+   * @param {string} eventId - ID of the event that failed to sync
+   * @param {string} sourceCalendarId - ID of the source calendar
+   * @param {string} targetCalendarId - ID of the target calendar
    */
   constructor(message, eventId, sourceCalendarId, targetCalendarId) {
     super(message, 'EVENT_SYNC', true, true);
@@ -75,15 +75,15 @@ class EventSyncError extends SyncError {
 }
 
 /**
- *
+ * Error thrown when a potential infinite update loop is detected
  */
 class LoopDetectionError extends SyncError {
   /**
-   *
-   * @param message
-   * @param sourceId
-   * @param targetId
-   * @param eventId
+   * Creates a new LoopDetectionError instance
+   * @param {string} message - Error message
+   * @param {string} sourceId - ID of the source calendar
+   * @param {string} targetId - ID of the target calendar
+   * @param {string} eventId - ID of the event causing the loop
    */
   constructor(message, sourceId, targetId, eventId) {
     super(message, 'LOOP_DETECTION', true, false);
@@ -99,7 +99,7 @@ class LoopDetectionError extends SyncError {
  */
 class ErrorRecoveryManager {
   /**
-   *
+   * Creates a new ErrorRecoveryManager instance
    */
   constructor() {
     this.retryAttempts = new Map();
@@ -172,8 +172,9 @@ class ErrorRecoveryManager {
   }
 
   /**
-   *
-   * @param error
+   * Attempts to recover from calendar access errors
+   * @param {CalendarAccessError} error - The calendar access error
+   * @returns {object} Recovery result with success status and message
    */
   handleCalendarAccess(error) {
     try {
@@ -189,8 +190,9 @@ class ErrorRecoveryManager {
   }
 
   /**
-   *
-   * @param error
+   * Handles errors that occur during event synchronization
+   * @param {EventSyncError} error - The event synchronization error
+   * @returns {object} Recovery result with success status and message
    */
   handleEventSyncError(error) {
     // For event sync errors, we can continue with other events
@@ -198,7 +200,8 @@ class ErrorRecoveryManager {
     return { success: true, message: 'Skipped problematic event' };
   }
   /**
-   *
+   * Handles quota exceeded errors by implementing backoff strategies
+   * @returns {object} Recovery result with success status and message
    */
   handleQuotaExceeded() {
     // Get current API usage stats

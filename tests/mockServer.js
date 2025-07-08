@@ -1,4 +1,5 @@
 // tests/mockServer.js
+/* eslint-env jest, node */
 
 class MockCalendarServer {
   constructor() {

@@ -1,4 +1,5 @@
 // tests/unit.test.js
+/* eslint-env jest, node */
 require('./mocks');
 const {
   generateSyncKey,

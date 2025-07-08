@@ -1,4 +1,5 @@
 // tests/mocks.js
+/* eslint-env jest, node */
 
 // Mock events
 const createMockEvent = ({ id, summary, updated, status = 'confirmed', extendedProperties = {} }) => ({
@@ -21,7 +22,7 @@ const mockCalendarApi = {
   }
 };
 
-// Globální mocky pro GAS prostředí
+// Global mocks for Google Apps Script environment
 global.Calendar = mockCalendarApi;
 global.LockService = {
   getScriptLock: () => ({

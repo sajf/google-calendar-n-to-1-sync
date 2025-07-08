@@ -1,4 +1,5 @@
 // tests/snapshot.test.js
+/* eslint-env jest, node */
 require('./mocks');
 const { createMockEvent } = require('./mocks');
 

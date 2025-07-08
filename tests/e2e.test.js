@@ -1,4 +1,5 @@
 // tests/e2e.test.js
+/* eslint-env jest, node */
 const { MockCalendarServer } = require('./mockServer');
 const { createMockEvent } = require('./mocks');
 

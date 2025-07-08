@@ -1,4 +1,5 @@
 // tests/testUtils.js
+/* eslint-env jest, node */
 
 /**
  * Test utilities for calendar sync testing
@@ -8,6 +9,8 @@ const { createMockEvent } = require('./mocks');
 
 /**
  * Creates a realistic event with random data
+ * @param {object} overrides - Properties to override in the event
+ * @returns {object} Mock event object
  */
 function createRealisticEvent(overrides = {}) {
   const eventId = `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -31,6 +34,9 @@ function createRealisticEvent(overrides = {}) {
 
 /**
  * Creates a batch of test events
+ * @param {number} count - Number of events to create
+ * @param {object} overrides - Properties to override in each event
+ * @returns {Array<object>} Array of mock event objects
  */
 function createEventBatch(count = 5, overrides = {}) {
   return Array.from({ length: count }, (_, i) =>
@@ -43,6 +49,9 @@ function createEventBatch(count = 5, overrides = {}) {
 
 /**
  * Asserts that two events are equivalent (ignoring timestamps)
+ * @param {object} event1 - First event to compare
+ * @param {object} event2 - Second event to compare
+ * @param {Array<string>} ignoreFields - Fields to ignore during comparison
  */
 function assertEventsEqual(event1, event2, ignoreFields = ['updated', 'created']) {
   const normalize = event => {
@@ -56,13 +65,20 @@ function assertEventsEqual(event1, event2, ignoreFields = ['updated', 'created']
 
 /**
  * Simulates time passing for testing timestamp-based logic
+ * @param {number} milliseconds - Number of milliseconds to wait
+ * @returns {Promise} Promise that resolves after the specified time
  */
 function simulateTimePass(milliseconds = 1000) {
-  return new Promise(resolve => setTimeout(resolve, milliseconds));
+  return new Promise(resolve => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 /**
  * Creates a mock date range for testing
+ * @param {number} daysFromNow - Number of days from now to start the range
+ * @param {number} durationDays - Duration of the range in days
+ * @returns {object} Object with start and end dates
  */
 function createDateRange(daysFromNow = 0, durationDays = 30) {
   const start = new Date();

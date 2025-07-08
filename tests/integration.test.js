@@ -1,4 +1,5 @@
 // tests/integration.test.js
+/* eslint-env jest, node */
 const { mockCalendarApi, createMockEvent } = require('./mocks');
 
 describe('Calendar API Integration Tests', () => {
