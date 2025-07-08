@@ -1,5 +1,5 @@
 /**
- * @fileoverview Main logic for N-to-1 Calendar Sync.
+ * @file Main logic for N-to-1 Calendar Sync.
  * Contains the core orchestration and user-facing functions.
  */
 
@@ -7,598 +7,726 @@
  * Custom error classes for better error handling
  */
 class SyncError extends Error {
-    constructor(message, type = 'UNKNOWN', recoverable = false, retryable = false) {
-        super(message);
-        this.name = 'SyncError';
-        this.type = type;
-        this.recoverable = recoverable;
-        this.retryable = retryable;
-        this.timestamp = new Date().toISOString();
-    }
+  /**
+   *
+   * @param message
+   * @param type
+   * @param recoverable
+   * @param retryable
+   */
+  constructor(message, type = 'UNKNOWN', recoverable = false, retryable = false) {
+    super(message);
+    this.name = 'SyncError';
+    this.type = type;
+    this.recoverable = recoverable;
+    this.retryable = retryable;
+    this.timestamp = new Date().toISOString();
+  }
 }
 
+/**
+ *
+ */
 class CalendarAccessError extends SyncError {
-    constructor(message, calendarId) {
-        super(message, 'CALENDAR_ACCESS', false, true);
-        this.name = 'CalendarAccessError';
-        this.calendarId = calendarId;
-    }
+  /**
+   *
+   * @param message
+   * @param calendarId
+   */
+  constructor(message, calendarId) {
+    super(message, 'CALENDAR_ACCESS', false, true);
+    this.name = 'CalendarAccessError';
+    this.calendarId = calendarId;
+  }
 }
 
+/**
+ *
+ */
 class QuotaExceededError extends SyncError {
-    constructor(message) {
-        super(message, 'QUOTA_EXCEEDED', true, true);
-        this.name = 'QuotaExceededError';
-    }
+  /**
+   *
+   * @param message
+   */
+  constructor(message) {
+    super(message, 'QUOTA_EXCEEDED', true, true);
+    this.name = 'QuotaExceededError';
+  }
 }
 
+/**
+ *
+ */
 class EventSyncError extends SyncError {
-    constructor(message, eventId, sourceCalendarId, targetCalendarId) {
-        super(message, 'EVENT_SYNC', true, true);
-        this.name = 'EventSyncError';
-        this.eventId = eventId;
-        this.sourceCalendarId = sourceCalendarId;
-        this.targetCalendarId = targetCalendarId;
-    }
+  /**
+   *
+   * @param message
+   * @param eventId
+   * @param sourceCalendarId
+   * @param targetCalendarId
+   */
+  constructor(message, eventId, sourceCalendarId, targetCalendarId) {
+    super(message, 'EVENT_SYNC', true, true);
+    this.name = 'EventSyncError';
+    this.eventId = eventId;
+    this.sourceCalendarId = sourceCalendarId;
+    this.targetCalendarId = targetCalendarId;
+  }
 }
 
+/**
+ *
+ */
 class LoopDetectionError extends SyncError {
-    constructor(message, sourceId, targetId, eventId) {
-        super(message, 'LOOP_DETECTION', true, false);
-        this.name = 'LoopDetectionError';
-        this.sourceId = sourceId;
-        this.targetId = targetId;
-        this.eventId = eventId;
-    }
+  /**
+   *
+   * @param message
+   * @param sourceId
+   * @param targetId
+   * @param eventId
+   */
+  constructor(message, sourceId, targetId, eventId) {
+    super(message, 'LOOP_DETECTION', true, false);
+    this.name = 'LoopDetectionError';
+    this.sourceId = sourceId;
+    this.targetId = targetId;
+    this.eventId = eventId;
+  }
 }
 
 /**
  * Error recovery strategies
  */
 class ErrorRecoveryManager {
-    constructor() {
-        this.retryAttempts = new Map();
-        this.maxRetries = 3;
-        this.backoffMultiplier = 2;
-        this.baseDelay = 1000; // 1 second
+  /**
+   *
+   */
+  constructor() {
+    this.retryAttempts = new Map();
+    this.maxRetries = 3;
+    this.backoffMultiplier = 2;
+    this.baseDelay = 1000; // 1 second
+  }
+
+  /**
+   * Determines if an error should be retried
+   * @param error
+   * @param operationKey
+   */
+  shouldRetry(error, operationKey) {
+    if (!error.retryable) {
+      return false;
     }
 
-    /**
-     * Determines if an error should be retried
-     */
-    shouldRetry(error, operationKey) {
-        if (!error.retryable) return false;
+    const attempts = this.retryAttempts.get(operationKey) || 0;
+    return attempts < this.maxRetries;
+  }
 
-        const attempts = this.retryAttempts.get(operationKey) || 0;
-        return attempts < this.maxRetries;
+  /**
+   * Records a retry attempt
+   * @param operationKey
+   */
+  recordRetry(operationKey) {
+    const attempts = this.retryAttempts.get(operationKey) || 0;
+    this.retryAttempts.set(operationKey, attempts + 1);
+  }
+
+  /**
+   * Calculates delay for exponential backoff
+   * @param operationKey
+   */
+  getRetryDelay(operationKey) {
+    const attempts = this.retryAttempts.get(operationKey) || 0;
+    return this.baseDelay * Math.pow(this.backoffMultiplier, attempts);
+  }
+
+  /**
+   * Clears retry history for successful operations
+   * @param operationKey
+   */
+  clearRetryHistory(operationKey) {
+    this.retryAttempts.delete(operationKey);
+  }
+
+  /**
+   * Attempts recovery for specific error types
+   * @param error
+   */
+  attemptRecovery(error) {
+    switch (error.type) {
+      case 'QUOTA_EXCEEDED':
+        console.log('Quota exceeded - implementing exponential backoff');
+        return this.handleQuotaExceeded();
+
+      case 'CALENDAR_ACCESS':
+        console.log('Calendar access error - attempting to refresh permissions');
+        return this.handleCalendarAccess(error);
+
+      case 'EVENT_SYNC':
+        console.log('Event sync error - attempting selective recovery');
+        return this.handleEventSyncError(error);
+
+      default:
+        return { success: false, message: 'No recovery strategy available' };
+    }
+  }
+
+  /**
+   *
+   * @param error
+   */
+  handleCalendarAccess(error) {
+    try {
+      // Attempt to verify calendar access
+      if (error.calendarId) {
+        Calendar.Calendars.get(error.calendarId);
+        return { success: true, message: 'Calendar access restored' };
+      }
+    } catch (e) {
+      return { success: false, message: `Calendar still inaccessible: ${e.message}` };
+    }
+    return { success: false, message: 'Cannot verify calendar access' };
+  }
+
+  /**
+   *
+   * @param error
+   */
+  handleEventSyncError(error) {
+    // For event sync errors, we can continue with other events
+    console.log(`Skipping problematic event: ${error.eventId}`);
+    return { success: true, message: 'Skipped problematic event' };
+  }
+  /**
+   *
+   */
+  handleQuotaExceeded() {
+    // Get current API usage stats
+    const apiStats = calendarApiManager.getQueueStatus();
+
+    // Calculate appropriate delay based on current usage
+    let delay = this.baseDelay;
+
+    if (apiStats.requestCount >= apiStats.maxRequests * 0.9) {
+      // Near quota limit - wait for quota reset
+      delay = Math.max(apiStats.quotaResetIn + 1000, this.baseDelay * 5);
+      console.log(
+        `Near quota limit (${apiStats.requestCount}/${apiStats.maxRequests}), waiting ${delay}ms for quota reset`
+      );
+    } else {
+      // Standard exponential backoff
+      delay = Math.min(this.baseDelay * 4, 300000); // Max 5 minutes
+      console.log(`Quota exceeded, implementing exponential backoff: ${delay}ms`);
     }
 
-    /**
-     * Records a retry attempt
-     */
-    recordRetry(operationKey) {
-        const attempts = this.retryAttempts.get(operationKey) || 0;
-        this.retryAttempts.set(operationKey, attempts + 1);
-    }
-
-    /**
-     * Calculates delay for exponential backoff
-     */
-    getRetryDelay(operationKey) {
-        const attempts = this.retryAttempts.get(operationKey) || 0;
-        return this.baseDelay * Math.pow(this.backoffMultiplier, attempts);
-    }
-
-    /**
-     * Clears retry history for successful operations
-     */
-    clearRetryHistory(operationKey) {
-        this.retryAttempts.delete(operationKey);
-    }
-
-    /**
-     * Attempts recovery for specific error types
-     */
-    attemptRecovery(error) {
-        switch (error.type) {
-            case 'QUOTA_EXCEEDED':
-                console.log('Quota exceeded - implementing exponential backoff');
-                return this.handleQuotaExceeded();
-
-            case 'CALENDAR_ACCESS':
-                console.log('Calendar access error - attempting to refresh permissions');
-                return this.handleCalendarAccess(error);
-
-            case 'EVENT_SYNC':
-                console.log('Event sync error - attempting selective recovery');
-                return this.handleEventSyncError(error);
-
-            default:
-                return { success: false, message: 'No recovery strategy available' };
-        }
-    }
-
-    handleQuotaExceeded() {
-        // Implement progressive delays
-        const delay = Math.min(this.baseDelay * 60, 300000); // Max 5 minutes
-        Utilities.sleep(delay);
-        return { success: true, message: `Waited ${delay}ms for quota reset` };
-    }
-
-    handleCalendarAccess(error) {
-        try {
-            // Attempt to verify calendar access
-            if (error.calendarId) {
-                Calendar.Calendars.get(error.calendarId);
-                return { success: true, message: 'Calendar access restored' };
-            }
-        } catch (e) {
-            return { success: false, message: `Calendar still inaccessible: ${e.message}` };
-        }
-        return { success: false, message: 'Cannot verify calendar access' };
-    }
-
-    handleEventSyncError(error) {
-        // For event sync errors, we can continue with other events
-        console.log(`Skipping problematic event: ${error.eventId}`);
-        return { success: true, message: 'Skipped problematic event' };
-    }
-    handleQuotaExceeded() {
-        // Get current API usage stats
-        const apiStats = calendarApiManager.getQueueStatus();
-
-        // Calculate appropriate delay based on current usage
-        let delay = this.baseDelay;
-
-        if (apiStats.requestCount >= apiStats.maxRequests * 0.9) {
-            // Near quota limit - wait for quota reset
-            delay = Math.max(apiStats.quotaResetIn + 1000, this.baseDelay * 5);
-            console.log(`Near quota limit (${apiStats.requestCount}/${apiStats.maxRequests}), waiting ${delay}ms for quota reset`);
-        } else {
-            // Standard exponential backoff
-            delay = Math.min(this.baseDelay * 4, 300000); // Max 5 minutes
-            console.log(`Quota exceeded, implementing exponential backoff: ${delay}ms`);
-        }
-
-        Utilities.sleep(delay);
-        return { success: true, message: `Waited ${delay}ms for quota management` };
-    }
+    Utilities.sleep(delay);
+    return { success: true, message: `Waited ${delay}ms for quota management` };
+  }
 }
 // Enhanced quota monitoring function
-function monitorApiQuota() {
-    const apiStats = getApiUsageStats();
+/**
+ *
+ */
+function _monitorApiQuota() {
+  const apiStats = getApiUsageStats();
 
-    // Log warning if approaching quota limits
-    if (apiStats.requestCount >= apiStats.maxRequests * 0.8) {
-        console.warn(`⚠️  API quota warning: ${apiStats.requestCount}/${apiStats.maxRequests} requests used`);
-    }
+  // Log warning if approaching quota limits
+  if (apiStats.requestCount >= apiStats.maxRequests * 0.8) {
+    console.warn(`⚠️  API quota warning: ${apiStats.requestCount}/${apiStats.maxRequests} requests used`);
+  }
 
-    // Recommend sync frequency adjustment if quota is consistently high
-    if (apiStats.requestCount >= apiStats.maxRequests * 0.9) {
-        console.warn('📊 Consider reducing sync frequency or increasing batch delays to stay within quota limits');
-    }
+  // Recommend sync frequency adjustment if quota is consistently high
+  if (apiStats.requestCount >= apiStats.maxRequests * 0.9) {
+    console.warn('📊 Consider reducing sync frequency or increasing batch delays to stay within quota limits');
+  }
 
-    return apiStats;
+  return apiStats;
 }
-
 
 /**
  * Main function that starts the entire synchronization process.
  * It is called by an automatic trigger.
  */
 function runNto1Sync() {
-    const lock = LockService.getScriptLock();
-    if (!lock.tryLock(15 * 60 * 1000)) {
-        console.warn('Another synchronization instance is already running. Skipping.');
-        return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15 * 60 * 1000)) {
+    console.warn('Another synchronization instance is already running. Skipping.');
+    return;
+  }
+
+  const errorRecovery = new ErrorRecoveryManager();
+  let syncSuccess = false;
+  const criticalErrors = [];
+  const recoverableErrors = [];
+
+  try {
+    const now = new Date();
+    const startDate = new Date(now.getTime() - SYNC_CONFIG.DAYS_BACK * 24 * 60 * 60 * 1000);
+    const endDate = new Date(now.getTime() + SYNC_CONFIG.DAYS_FORWARD * 24 * 60 * 60 * 1000);
+
+    console.log('Starting N->1 synchronization...');
+
+    // Get sync state manager for loop detection
+    const syncStateManager = getSyncStateManager();
+
+    // Log sync statistics
+    const stats = syncStateManager.getSyncStats();
+    console.log(
+      `Sync stats - Total ops: ${stats.totalOperations}, Recent ops: ${stats.recentOperations}, Potential loops: ${stats.potentialLoops}`
+    );
+
+    // Get target events with retry logic
+    let allTargetEvents;
+    try {
+      allTargetEvents = getAllEventsIncludingDeletedSafe(TARGET_CALENDAR_ID, startDate, endDate);
+    } catch (error) {
+      throw new CalendarAccessError(`Failed to access target calendar: ${error.message}`, TARGET_CALENDAR_ID);
     }
 
-    const errorRecovery = new ErrorRecoveryManager();
-    let syncSuccess = false;
-    let criticalErrors = [];
-    let recoverableErrors = [];
+    // PART 1: Synchronization from sources to target (N -> 1)
+    let sourceSuccessCount = 0;
+    SOURCE_CALENDAR_IDS.forEach(sourceId => {
+      const operationKey = `source-sync-${sourceId}`;
+      let attempts = 0;
+      let success = false;
 
-    try {
-        const now = new Date();
-        const startDate = new Date(now.getTime() - (SYNC_CONFIG.DAYS_BACK * 24 * 60 * 60 * 1000));
-        const endDate = new Date(now.getTime() + (SYNC_CONFIG.DAYS_FORWARD * 24 * 60 * 60 * 1000));
-
-        console.log('Starting N->1 synchronization...');
-
-        // Get sync state manager for loop detection
-        const syncStateManager = getSyncStateManager();
-
-        // Log sync statistics
-        const stats = syncStateManager.getSyncStats();
-        console.log(`Sync stats - Total ops: ${stats.totalOperations}, Recent ops: ${stats.recentOperations}, Potential loops: ${stats.potentialLoops}`);
-
-        // Get target events with retry logic
-        let allTargetEvents;
+      while (!success && attempts < errorRecovery.maxRetries + 1) {
         try {
-            allTargetEvents = getAllEventsIncludingDeletedSafe(TARGET_CALENDAR_ID, startDate, endDate);
+          syncSourceToTarget(sourceId, TARGET_CALENDAR_ID, startDate, endDate, allTargetEvents);
+          success = true;
+          sourceSuccessCount++;
+          errorRecovery.clearRetryHistory(operationKey);
+          console.log(`Successfully synced source calendar: ${sourceId}`);
         } catch (error) {
-            throw new CalendarAccessError(`Failed to access target calendar: ${error.message}`, TARGET_CALENDAR_ID);
-        }
+          attempts++;
+          const syncError = classifyError(error, sourceId, TARGET_CALENDAR_ID);
 
-        // PART 1: Synchronization from sources to target (N -> 1)
-        let sourceSuccessCount = 0;
-        SOURCE_CALENDAR_IDS.forEach(sourceId => {
-            const operationKey = `source-sync-${sourceId}`;
-            let attempts = 0;
-            let success = false;
+          if (syncError.recoverable && errorRecovery.shouldRetry(syncError, operationKey)) {
+            console.log(`Attempt ${attempts} failed for ${sourceId}. Retrying...`);
+            errorRecovery.recordRetry(operationKey);
 
-            while (!success && attempts < errorRecovery.maxRetries + 1) {
-                try {
-                    syncSourceToTarget(sourceId, TARGET_CALENDAR_ID, startDate, endDate, allTargetEvents);
-                    success = true;
-                    sourceSuccessCount++;
-                    errorRecovery.clearRetryHistory(operationKey);
-                    console.log(`Successfully synced source calendar: ${sourceId}`);
-                } catch (error) {
-                    attempts++;
-                    const syncError = classifyError(error, sourceId, TARGET_CALENDAR_ID);
-
-                    if (syncError.recoverable && errorRecovery.shouldRetry(syncError, operationKey)) {
-                        console.log(`Attempt ${attempts} failed for ${sourceId}. Retrying...`);
-                        errorRecovery.recordRetry(operationKey);
-
-                        const recovery = errorRecovery.attemptRecovery(syncError);
-                        if (recovery.success) {
-                            console.log(`Recovery successful: ${recovery.message}`);
-                            const delay = errorRecovery.getRetryDelay(operationKey);
-                            Utilities.sleep(delay);
-                        } else {
-                            console.log(`Recovery failed: ${recovery.message}`);
-                            break;
-                        }
-                    } else {
-                        console.error(`Critical error syncing ${sourceId}: ${syncError.message}`);
-                        criticalErrors.push(syncError);
-                        break;
-                    }
-                }
-            }
-
-            if (!success) {
-                console.error(`Failed to sync source calendar ${sourceId} after ${attempts} attempts`);
-                recoverableErrors.push(new EventSyncError(`Failed to sync source ${sourceId}`, null, sourceId, TARGET_CALENDAR_ID));
-            }
-        });
-
-        // PART 2: Reverse synchronization of changes from target to sources (1 -> N)
-        try {
-            syncTargetToSources(TARGET_CALENDAR_ID, SOURCE_CALENDAR_IDS, allTargetEvents);
-            console.log('Reverse synchronization completed successfully');
-        } catch (error) {
-            const syncError = classifyError(error, TARGET_CALENDAR_ID, 'sources');
-            if (syncError.recoverable) {
-                console.log(`Recoverable error in reverse sync: ${syncError.message}`);
-                recoverableErrors.push(syncError);
-            } else {
-                console.error(`Critical error in reverse sync: ${syncError.message}`);
-                criticalErrors.push(syncError);
-            }
-        }
-
-        // Determine overall sync success
-        const totalSources = SOURCE_CALENDAR_IDS.length;
-        const successRate = sourceSuccessCount / totalSources;
-
-        if (successRate >= 0.8) { // 80% success rate threshold
-            syncSuccess = true;
-            console.log(`Synchronization completed successfully. Success rate: ${(successRate * 100).toFixed(1)}%`);
-        } else {
-            console.warn(`Synchronization completed with issues. Success rate: ${(successRate * 100).toFixed(1)}%`);
-        }
-
-        // Log error summary
-        if (criticalErrors.length > 0) {
-            console.error(`Critical errors encountered: ${criticalErrors.length}`);
-            criticalErrors.forEach(error => console.error(`  - ${error.message}`));
-        }
-
-        if (recoverableErrors.length > 0) {
-            console.warn(`Recoverable errors encountered: ${recoverableErrors.length}`);
-            recoverableErrors.forEach(error => console.warn(`  - ${error.message}`));
-        }
-
-    } catch (error) {
-        const syncError = classifyError(error);
-        console.error(`Critical synchronization error: ${syncError.message}`, syncError);
-
-        // Attempt recovery for critical errors
-        if (syncError.recoverable) {
             const recovery = errorRecovery.attemptRecovery(syncError);
             if (recovery.success) {
-                console.log(`Recovery attempt successful: ${recovery.message}`);
+              console.log(`Recovery successful: ${recovery.message}`);
+              const delay = errorRecovery.getRetryDelay(operationKey);
+              Utilities.sleep(delay);
             } else {
-                console.error(`Recovery attempt failed: ${recovery.message}`);
+              console.log(`Recovery failed: ${recovery.message}`);
+              break;
             }
+          } else {
+            console.error(`Critical error syncing ${sourceId}: ${syncError.message}`);
+            criticalErrors.push(syncError);
+            break;
+          }
         }
+      }
 
+      if (!success) {
+        console.error(`Failed to sync source calendar ${sourceId} after ${attempts} attempts`);
+        recoverableErrors.push(
+          new EventSyncError(`Failed to sync source ${sourceId}`, null, sourceId, TARGET_CALENDAR_ID)
+        );
+      }
+    });
+
+    // PART 2: Reverse synchronization of changes from target to sources (1 -> N)
+    try {
+      syncTargetToSources(TARGET_CALENDAR_ID, SOURCE_CALENDAR_IDS, allTargetEvents);
+      console.log('Reverse synchronization completed successfully');
+    } catch (error) {
+      const syncError = classifyError(error, TARGET_CALENDAR_ID, 'sources');
+      if (syncError.recoverable) {
+        console.log(`Recoverable error in reverse sync: ${syncError.message}`);
+        recoverableErrors.push(syncError);
+      } else {
+        console.error(`Critical error in reverse sync: ${syncError.message}`);
         criticalErrors.push(syncError);
-    } finally {
-        lock.releaseLock();
-
-        // Log final status
-        const finalStatus = {
-            success: syncSuccess,
-            criticalErrors: criticalErrors.length,
-            recoverableErrors: recoverableErrors.length,
-            timestamp: new Date().toISOString()
-        };
-
-        console.log('Synchronization summary:', JSON.stringify(finalStatus, null, 2));
-
-        // Store sync status for monitoring
-        try {
-            PropertiesService.getScriptProperties().setProperty('LAST_SYNC_STATUS', JSON.stringify(finalStatus));
-        } catch (e) {
-            console.error('Failed to store sync status:', e);
-        }
+      }
     }
+
+    // Determine overall sync success
+    const totalSources = SOURCE_CALENDAR_IDS.length;
+    const successRate = sourceSuccessCount / totalSources;
+
+    if (successRate >= 0.8) {
+      // 80% success rate threshold
+      syncSuccess = true;
+      console.log(`Synchronization completed successfully. Success rate: ${(successRate * 100).toFixed(1)}%`);
+    } else {
+      console.warn(`Synchronization completed with issues. Success rate: ${(successRate * 100).toFixed(1)}%`);
+    }
+
+    // Log error summary
+    if (criticalErrors.length > 0) {
+      console.error(`Critical errors encountered: ${criticalErrors.length}`);
+      criticalErrors.forEach(error => console.error(`  - ${error.message}`));
+    }
+
+    if (recoverableErrors.length > 0) {
+      console.warn(`Recoverable errors encountered: ${recoverableErrors.length}`);
+      recoverableErrors.forEach(error => console.warn(`  - ${error.message}`));
+    }
+  } catch (error) {
+    const syncError = classifyError(error);
+    console.error(`Critical synchronization error: ${syncError.message}`, syncError);
+
+    // Attempt recovery for critical errors
+    if (syncError.recoverable) {
+      const recovery = errorRecovery.attemptRecovery(syncError);
+      if (recovery.success) {
+        console.log(`Recovery attempt successful: ${recovery.message}`);
+      } else {
+        console.error(`Recovery attempt failed: ${recovery.message}`);
+      }
+    }
+
+    criticalErrors.push(syncError);
+  } finally {
+    lock.releaseLock();
+
+    // Log final status
+    const finalStatus = {
+      success: syncSuccess,
+      criticalErrors: criticalErrors.length,
+      recoverableErrors: recoverableErrors.length,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log('Synchronization summary:', JSON.stringify(finalStatus, null, 2));
+
+    // Store sync status for monitoring
+    try {
+      PropertiesService.getScriptProperties().setProperty('LAST_SYNC_STATUS', JSON.stringify(finalStatus));
+    } catch (e) {
+      console.error('Failed to store sync status:', e);
+    }
+  }
 }
 
 /**
  * Classifies generic errors into specific sync error types
+ * @param error
+ * @param sourceId
+ * @param targetId
+ * @param eventId
  */
 function classifyError(error, sourceId = null, targetId = null, eventId = null) {
-    const message = error.message || error.toString();
+  const message = error.message || error.toString();
 
-    if (message.includes('Rate Limit') || message.includes('Quota') || message.includes('quota')) {
-        return new QuotaExceededError(message);
-    }
+  if (message.includes('Rate Limit') || message.includes('Quota') || message.includes('quota')) {
+    return new QuotaExceededError(message);
+  }
 
-    if (message.includes('Not Found') || message.includes('Forbidden') || message.includes('Permission')) {
-        return new CalendarAccessError(message, sourceId || targetId);
-    }
+  if (message.includes('Not Found') || message.includes('Forbidden') || message.includes('Permission')) {
+    return new CalendarAccessError(message, sourceId || targetId);
+  }
 
-    if (message.includes('loop') || message.includes('circular')) {
-        return new LoopDetectionError(message, sourceId, targetId, eventId);
-    }
+  if (message.includes('loop') || message.includes('circular')) {
+    return new LoopDetectionError(message, sourceId, targetId, eventId);
+  }
 
-    if (sourceId && targetId) {
-        return new EventSyncError(message, eventId, sourceId, targetId);
-    }
+  if (sourceId && targetId) {
+    return new EventSyncError(message, eventId, sourceId, targetId);
+  }
 
-    // Default to generic sync error
-    return new SyncError(message, 'UNKNOWN', false, true);
+  // Default to generic sync error
+  return new SyncError(message, 'UNKNOWN', false, true);
 }
 
 /**
  * Synchronizes one source calendar to the target calendar.
+ * @param sourceId
+ * @param targetId
+ * @param startDate
+ * @param endDate
+ * @param allTargetEvents
  */
 function syncSourceToTarget(sourceId, targetId, startDate, endDate, allTargetEvents) {
-    console.log(`Processing: ${sourceId} -> ${targetId}`);
+  console.log(`Processing: ${sourceId} -> ${targetId}`);
 
-    let sourceEvents;
+  let sourceEvents;
+  try {
+    sourceEvents = getAllEventsIncludingDeletedSafe(sourceId, startDate, endDate);
+  } catch (error) {
+    throw new CalendarAccessError(`Failed to access source calendar: ${error.message}`, sourceId);
+  }
+
+  const targetEventMap = createEventMapForSource(allTargetEvents, sourceId);
+  const syncStateManager = getSyncStateManager();
+
+  let processedEvents = 0;
+  let errorCount = 0;
+  const maxErrorThreshold = Math.max(5, Math.floor(sourceEvents.length * 0.1)); // 10% or min 5 errors
+
+  sourceEvents.forEach(sourceEvent => {
     try {
-        sourceEvents = getAllEventsIncludingDeletedSafe(sourceId, startDate, endDate);
-    } catch (error) {
-        throw new CalendarAccessError(`Failed to access source calendar: ${error.message}`, sourceId);
-    }
+      const expectedSyncKey = generateSyncKey(sourceEvent, sourceId);
+      const targetEvent = targetEventMap[expectedSyncKey];
 
-    const targetEventMap = createEventMapForSource(allTargetEvents, sourceId);
-    const syncStateManager = getSyncStateManager();
+      // Check for potential loops before processing
+      if (syncStateManager.wouldCreateLoop(sourceId, targetId, sourceEvent.id, 'update')) {
+        console.log(`Skipping sync to prevent loop: ${sourceEvent.summary} (${sourceId} -> ${targetId})`);
+        return;
+      }
 
-    let processedEvents = 0;
-    let errorCount = 0;
-    const maxErrorThreshold = Math.max(5, Math.floor(sourceEvents.length * 0.1)); // 10% or min 5 errors
-
-    sourceEvents.forEach(sourceEvent => {
-        try {
-            const expectedSyncKey = generateSyncKey(sourceEvent, sourceId);
-            const targetEvent = targetEventMap[expectedSyncKey];
-
-            // Check for potential loops before processing
-            if (syncStateManager.wouldCreateLoop(sourceId, targetId, sourceEvent.id, 'update')) {
-                console.log(`Skipping sync to prevent loop: ${sourceEvent.summary} (${sourceId} -> ${targetId})`);
-                return;
-            }
-
-            if (sourceEvent.status === 'cancelled') {
-                if (targetEvent && targetEvent.status !== 'cancelled') {
-                    syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'delete');
-                    deleteEventSafe(targetId, targetEvent.id);
-                    console.log(`DELETED in target: "${sourceEvent.summary || ''}" (from ${sourceId})`);
-                }
-            } else if (!targetEvent) {
-                syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'create');
-                createOrUpdateSyncedEvent(sourceEvent, targetId, sourceId, allTargetEvents);
-                console.log(`CREATED in target: "${sourceEvent.summary}" (from ${sourceId})`);
-            } else {
-                const sourceUpdated = new Date(sourceEvent.updated);
-                const targetUpdated = new Date(targetEvent.updated);
-
-                if (syncStateManager.shouldSkipSync(sourceId, targetId, sourceEvent.id, sourceUpdated, targetUpdated)) {
-                    return;
-                }
-
-                if (sourceUpdated > targetUpdated) {
-                    syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'update', {
-                        sourceUpdated: sourceUpdated.toISOString(),
-                        targetUpdated: targetUpdated.toISOString()
-                    });
-                    updateSyncedEventSafe(sourceEvent, targetId, targetEvent.id, sourceId);
-                    console.log(`UPDATED in target: "${sourceEvent.summary}" (from ${sourceId})`);
-                }
-            }
-
-            processedEvents++;
-        } catch (error) {
-            errorCount++;
-            console.error(`Error processing event "${sourceEvent.summary || sourceEvent.id}": ${error.message}`);
-
-            // If too many errors, abort this source
-            if (errorCount > maxErrorThreshold) {
-                throw new EventSyncError(`Too many errors (${errorCount}) processing source ${sourceId}`, sourceEvent.id, sourceId, targetId);
-            }
+      if (sourceEvent.status === 'cancelled') {
+        if (targetEvent && targetEvent.status !== 'cancelled') {
+          syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'delete');
+          deleteEventSafe(targetId, targetEvent.id);
+          console.log(`DELETED in target: "${sourceEvent.summary || ''}" (from ${sourceId})`);
         }
-    });
+      } else if (!targetEvent) {
+        syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'create');
+        createOrUpdateSyncedEvent(sourceEvent, targetId, sourceId, allTargetEvents);
+        console.log(`CREATED in target: "${sourceEvent.summary}" (from ${sourceId})`);
+      } else {
+        const sourceUpdated = new Date(sourceEvent.updated);
+        const targetUpdated = new Date(targetEvent.updated);
 
-    console.log(`Source ${sourceId} processed: ${processedEvents} events, ${errorCount} errors`);
+        if (syncStateManager.shouldSkipSync(sourceId, targetId, sourceEvent.id, sourceUpdated, targetUpdated)) {
+          return;
+        }
+
+        if (sourceUpdated > targetUpdated) {
+          syncStateManager.recordOperation(sourceId, targetId, sourceEvent.id, 'update', {
+            sourceUpdated: sourceUpdated.toISOString(),
+            targetUpdated: targetUpdated.toISOString()
+          });
+          updateSyncedEventSafe(sourceEvent, targetId, targetEvent.id, sourceId);
+          console.log(`UPDATED in target: "${sourceEvent.summary}" (from ${sourceId})`);
+        }
+      }
+
+      processedEvents++;
+    } catch (error) {
+      errorCount++;
+      console.error(`Error processing event "${sourceEvent.summary || sourceEvent.id}": ${error.message}`);
+
+      // If too many errors, abort this source
+      if (errorCount > maxErrorThreshold) {
+        throw new EventSyncError(
+          `Too many errors (${errorCount}) processing source ${sourceId}`,
+          sourceEvent.id,
+          sourceId,
+          targetId
+        );
+      }
+    }
+  });
+
+  console.log(`Source ${sourceId} processed: ${processedEvents} events, ${errorCount} errors`);
 }
 
 /**
  * Synchronizes changes from the target calendar back to the sources.
+ * @param targetId
+ * @param sourceIds
+ * @param targetEvents
  */
 function syncTargetToSources(targetId, sourceIds, targetEvents) {
-    console.log(`Processing reverse synchronization: ${targetId} -> Sources`);
-    const syncStateManager = getSyncStateManager();
+  console.log(`Processing reverse synchronization: ${targetId} -> Sources`);
+  const syncStateManager = getSyncStateManager();
 
-    let processedEvents = 0;
-    let errorCount = 0;
-    const maxErrorThreshold = Math.max(5, Math.floor(targetEvents.length * 0.1));
+  let processedEvents = 0;
+  let errorCount = 0;
+  const maxErrorThreshold = Math.max(5, Math.floor(targetEvents.length * 0.1));
 
-    targetEvents.forEach(targetEvent => {
-        try {
-            const sourceCalendarId = targetEvent.extendedProperties?.private?.SYNC_SOURCE;
-            const originalEventId = targetEvent.extendedProperties?.private?.SYNC_ORIGINAL_ID;
+  targetEvents.forEach(targetEvent => {
+    try {
+      const sourceCalendarId = targetEvent.extendedProperties?.private?.SYNC_SOURCE;
+      const originalEventId = targetEvent.extendedProperties?.private?.SYNC_ORIGINAL_ID;
 
-            if (!sourceCalendarId || !originalEventId || !sourceIds.includes(sourceCalendarId)) return;
+      if (!sourceCalendarId || !originalEventId || !sourceIds.includes(sourceCalendarId)) {
+        return;
+      }
 
-            // Check for potential loops before processing
-            if (syncStateManager.wouldCreateLoop(targetId, sourceCalendarId, originalEventId, 'update')) {
-                console.log(`Skipping reverse sync to prevent loop: ${targetEvent.summary} (${targetId} -> ${sourceCalendarId})`);
-                return;
-            }
+      // Check for potential loops before processing
+      if (syncStateManager.wouldCreateLoop(targetId, sourceCalendarId, originalEventId, 'update')) {
+        console.log(
+          `Skipping reverse sync to prevent loop: ${targetEvent.summary} (${targetId} -> ${sourceCalendarId})`
+        );
+        return;
+      }
 
-            let originalEvent;
-            try {
-                originalEvent = Calendar.Events.get(sourceCalendarId, originalEventId);
-            } catch (e) {
-                if (e.message.includes('Not Found')) {
-                    if (targetEvent.status !== 'cancelled') {
-                        syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'delete');
-                        deleteEventSafe(targetId, targetEvent.id);
-                    }
-                    return;
-                }
-                throw e;
-            }
-
-            if (targetEvent.status === 'cancelled') {
-                if (originalEvent.status !== 'cancelled') {
-                    syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'delete');
-                    deleteEventSafe(sourceCalendarId, originalEventId);
-                    console.log(`DELETED in source: "${originalEvent.summary}" (in ${sourceCalendarId})`);
-                }
-            } else {
-                const targetUpdated = new Date(targetEvent.updated);
-                const originalUpdated = new Date(originalEvent.updated);
-
-                if (syncStateManager.shouldSkipSync(targetId, sourceCalendarId, originalEventId, targetUpdated, originalUpdated)) {
-                    return;
-                }
-
-                if (targetUpdated > originalUpdated) {
-                    syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'update', {
-                        targetUpdated: targetUpdated.toISOString(),
-                        originalUpdated: originalUpdated.toISOString()
-                    });
-
-                    const updatedSourceEvent = updateSourceEventSafe(targetEvent, sourceCalendarId, originalEventId);
-                    console.log(`UPDATED in source: "${targetEvent.summary}" (in ${sourceCalendarId})`);
-
-                    if (updatedSourceEvent) {
-                        Utilities.sleep(100);
-                        Calendar.Events.patch({
-                            summary: targetEvent.summary,
-                            extendedProperties: targetEvent.extendedProperties
-                        }, targetId, targetEvent.id);
-                        console.log(`   -> "Touch" target event to unify update time.`);
-                    }
-                }
-            }
-
-            processedEvents++;
-        } catch (e) {
-            errorCount++;
-            console.error(`Error during reverse synchronization for event "${targetEvent.summary || targetEvent.id}":`, e);
-
-            // If too many errors, abort reverse sync
-            if (errorCount > maxErrorThreshold) {
-                throw new EventSyncError(`Too many errors (${errorCount}) in reverse synchronization`, targetEvent.id, targetId, 'sources');
-            }
+      let originalEvent;
+      try {
+        originalEvent = Calendar.Events.get(sourceCalendarId, originalEventId);
+      } catch (e) {
+        if (e.message.includes('Not Found')) {
+          if (targetEvent.status !== 'cancelled') {
+            syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'delete');
+            deleteEventSafe(targetId, targetEvent.id);
+          }
+          return;
         }
-    });
+        throw e;
+      }
 
-    console.log(`Reverse sync processed: ${processedEvents} events, ${errorCount} errors`);
+      if (targetEvent.status === 'cancelled') {
+        if (originalEvent.status !== 'cancelled') {
+          syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'delete');
+          deleteEventSafe(sourceCalendarId, originalEventId);
+          console.log(`DELETED in source: "${originalEvent.summary}" (in ${sourceCalendarId})`);
+        }
+      } else {
+        const targetUpdated = new Date(targetEvent.updated);
+        const originalUpdated = new Date(originalEvent.updated);
+
+        if (
+          syncStateManager.shouldSkipSync(targetId, sourceCalendarId, originalEventId, targetUpdated, originalUpdated)
+        ) {
+          return;
+        }
+
+        if (targetUpdated > originalUpdated) {
+          syncStateManager.recordOperation(targetId, sourceCalendarId, originalEventId, 'update', {
+            targetUpdated: targetUpdated.toISOString(),
+            originalUpdated: originalUpdated.toISOString()
+          });
+
+          const updatedSourceEvent = updateSourceEventSafe(targetEvent, sourceCalendarId, originalEventId);
+          console.log(`UPDATED in source: "${targetEvent.summary}" (in ${sourceCalendarId})`);
+
+          if (updatedSourceEvent) {
+            Utilities.sleep(100);
+            Calendar.Events.patch(
+              {
+                summary: targetEvent.summary,
+                extendedProperties: targetEvent.extendedProperties
+              },
+              targetId,
+              targetEvent.id
+            );
+            console.log(`   -> "Touch" target event to unify update time.`);
+          }
+        }
+      }
+
+      processedEvents++;
+    } catch (e) {
+      errorCount++;
+      console.error(`Error during reverse synchronization for event "${targetEvent.summary || targetEvent.id}":`, e);
+
+      // If too many errors, abort reverse sync
+      if (errorCount > maxErrorThreshold) {
+        throw new EventSyncError(
+          `Too many errors (${errorCount}) in reverse synchronization`,
+          targetEvent.id,
+          targetId,
+          'sources'
+        );
+      }
+    }
+  });
+
+  console.log(`Reverse sync processed: ${processedEvents} events, ${errorCount} errors`);
 }
 
 // --- USER MANAGEMENT FUNCTIONS ---
 
-function setupAutomaticSync() {
-    const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach(trigger => { if (trigger.getHandlerFunction() === 'runNto1Sync') ScriptApp.deleteTrigger(trigger); });
-    ScriptApp.newTrigger('runNto1Sync').timeBased().everyMinutes(15).create();
-    console.log('Automatic trigger for N->1 sync set to run every 15 minutes.');
+/**
+ *
+ */
+function _setupAutomaticSync() {
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'runNto1Sync') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  ScriptApp.newTrigger('runNto1Sync').timeBased().everyMinutes(15).create();
+  console.log('Automatic trigger for N->1 sync set to run every 15 minutes.');
 }
 
-function removeAutomaticSync() {
-    const triggers = ScriptApp.getProjectTriggers();
-    triggers.forEach(trigger => { if (trigger.getHandlerFunction() === 'runNto1Sync') ScriptApp.deleteTrigger(trigger); });
-    console.log('Automatic trigger for N->1 sync removed.');
+/**
+ *
+ */
+function _removeAutomaticSync() {
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(trigger => {
+    if (trigger.getHandlerFunction() === 'runNto1Sync') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+  console.log('Automatic trigger for N->1 sync removed.');
 }
 
-function testConfiguration() {
-    console.log('Testing configuration...');
-    let allOk = true;
-    SOURCE_CALENDAR_IDS.forEach(id => {
-        try { Calendar.Calendars.get(id); console.log(`✓ Access to source ${id} works.`); }
-        catch(e) { console.error(`✗ ERROR with source ${id}: ${e.message}`); allOk = false; }
-    });
-    try { Calendar.Calendars.get(TARGET_CALENDAR_ID); console.log(`✓ Access to target ${TARGET_CALENDAR_ID} works.`); }
-    catch(e) { console.error(`✗ ERROR with target ${TARGET_CALENDAR_ID}: ${e.message}`); allOk = false; }
+/**
+ *
+ */
+function _testConfiguration() {
+  console.log('Testing configuration...');
+  let allOk = true;
+  SOURCE_CALENDAR_IDS.forEach(id => {
+    try {
+      Calendar.Calendars.get(id);
+      console.log(`✓ Access to source ${id} works.`);
+    } catch (e) {
+      console.error(`✗ ERROR with source ${id}: ${e.message}`);
+      allOk = false;
+    }
+  });
+  try {
+    Calendar.Calendars.get(TARGET_CALENDAR_ID);
+    console.log(`✓ Access to target ${TARGET_CALENDAR_ID} works.`);
+  } catch (e) {
+    console.error(`✗ ERROR with target ${TARGET_CALENDAR_ID}: ${e.message}`);
+    allOk = false;
+  }
 
-    if (allOk) console.log('\nConfiguration is correct!'); else console.error('\nTest failed. Check calendar IDs and permissions.');
+  if (allOk) {
+    console.log('\nConfiguration is correct!');
+  } else {
+    console.error('\nTest failed. Check calendar IDs and permissions.');
+  }
 }
 
 /**
  * Utility function to get sync statistics
  */
-function getSyncStatistics() {
-    const syncStateManager = getSyncStateManager();
-    const stats = syncStateManager.getSyncStats();
+function _getSyncStatistics() {
+  const syncStateManager = getSyncStateManager();
+  const stats = syncStateManager.getSyncStats();
 
-    console.log('=== Sync Statistics ===');
-    console.log(`Total operations: ${stats.totalOperations}`);
-    console.log(`Recent operations (last 5 min): ${stats.recentOperations}`);
-    console.log(`Potential loops detected: ${stats.potentialLoops}`);
-    console.log('Operations by type:');
-    Object.entries(stats.operationsByType).forEach(([type, count]) => {
-        console.log(`  ${type}: ${count}`);
-    });
+  console.log('=== Sync Statistics ===');
+  console.log(`Total operations: ${stats.totalOperations}`);
+  console.log(`Recent operations (last 5 min): ${stats.recentOperations}`);
+  console.log(`Potential loops detected: ${stats.potentialLoops}`);
+  console.log('Operations by type:');
+  Object.entries(stats.operationsByType).forEach(([type, count]) => {
+    console.log(`  ${type}: ${count}`);
+  });
 
-    return stats;
+  return stats;
 }
 
 /**
  * Utility function to get last sync status
  */
-function getLastSyncStatus() {
-    try {
-        const statusJson = PropertiesService.getScriptProperties().getProperty('LAST_SYNC_STATUS');
-        if (statusJson) {
-            const status = JSON.parse(statusJson);
-            console.log('=== Last Sync Status ===');
-            console.log(`Success: ${status.success}`);
-            console.log(`Critical Errors: ${status.criticalErrors}`);
-            console.log(`Recoverable Errors: ${status.recoverableErrors}`);
-            console.log(`Timestamp: ${status.timestamp}`);
-            return status;
-        }
-    } catch (e) {
-        console.error('Failed to retrieve last sync status:', e);
+function _getLastSyncStatus() {
+  try {
+    const statusJson = PropertiesService.getScriptProperties().getProperty('LAST_SYNC_STATUS');
+    if (statusJson) {
+      const status = JSON.parse(statusJson);
+      console.log('=== Last Sync Status ===');
+      console.log(`Success: ${status.success}`);
+      console.log(`Critical Errors: ${status.criticalErrors}`);
+      console.log(`Recoverable Errors: ${status.recoverableErrors}`);
+      console.log(`Timestamp: ${status.timestamp}`);
+      return status;
     }
-    return null;
+  } catch (e) {
+    console.error('Failed to retrieve last sync status:', e);
+  }
+  return null;
 }
 
 /**
  * Utility function to reset sync state (for troubleshooting)
  */
-function resetSyncState() {
-    resetSyncStateManager();
-    PropertiesService.getScriptProperties().deleteProperty('LAST_SYNC_STATUS');
-    console.log('Sync state has been reset.');
+function _resetSyncState() {
+  resetSyncStateManager();
+  PropertiesService.getScriptProperties().deleteProperty('LAST_SYNC_STATUS');
+  console.log('Sync state has been reset.');
 }

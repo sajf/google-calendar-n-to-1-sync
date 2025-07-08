@@ -1,11 +1,13 @@
 {
   "timeZone": "Europe/Prague",
   "dependencies": {
-    "enabledAdvancedServices": [{
-      "userSymbol": "Calendar",
-      "serviceId": "calendar",
-      "version": "v3"
-    }]
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Calendar",
+        "serviceId": "calendar",
+        "version": "v3"
+      }
+    ]
   },
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8"
