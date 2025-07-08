@@ -7,12 +7,12 @@
 /* global SOURCE_CALENDAR_IDS, TARGET_CALENDAR_ID, SYNC_CONFIG */
 
 // Constants for magic numbers
-const QUOTA_WARNING_THRESHOLD = 0.8;  // 80% of quota
+const QUOTA_WARNING_THRESHOLD = 0.8; // 80% of quota
 const QUOTA_CRITICAL_THRESHOLD = 0.9; // 90% of quota
-const QUOTA_LOW_THRESHOLD = 0.1;      // 10% of quota
-const MAX_BACKOFF_DELAY = 300000;     // 5 minutes in milliseconds
-const LOCK_TIMEOUT = 15 * 60 * 1000;  // 15 minutes in milliseconds
-const TRIGGER_INTERVAL_MINUTES = 15;  // Run sync every 15 minutes
+const QUOTA_LOW_THRESHOLD = 0.1; // 10% of quota
+const MAX_BACKOFF_DELAY = 300000; // 5 minutes in milliseconds
+const LOCK_TIMEOUT = 15 * 60 * 1000; // 15 minutes in milliseconds
+const TRIGGER_INTERVAL_MINUTES = 15; // Run sync every 15 minutes
 
 /**
  * Custom error classes for better error handling

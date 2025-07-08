@@ -5,17 +5,10 @@ const prettier = require('eslint-config-prettier');
 module.exports = [
   // Ignore configuration files
   {
-    ignores: [
-      '.prettierrc.js',
-      'eslint.config.js',
-      'jest.config.js',
-      'node_modules/**',
-      'dist/**',
-      'build/**'
-    ]
+    ignores: ['.prettierrc.js', 'eslint.config.js', 'jest.config.js', 'node_modules/**', 'dist/**', 'build/**']
   },
 
-// Base configuration for Google Apps Script files
+  // Base configuration for Google Apps Script files
   {
     files: ['**/*.js'],
     languageOptions: {
@@ -92,8 +85,8 @@ module.exports = [
       'no-console': 'off', // Allow console.log in Apps Script
       'prefer-const': 'error',
       'no-var': 'error',
-      'eqeqeq': ['error', 'always'],
-      'curly': ['error', 'all'],
+      eqeqeq: ['error', 'always'],
+      curly: ['error', 'all'],
       'no-eval': 'error',
       'no-implied-eval': 'error',
       'no-with': 'error',
@@ -117,21 +110,21 @@ module.exports = [
       ],
 
       // Style Rules (complementing Prettier)
-      'indent': [
+      indent: [
         'error',
         2,
         {
           SwitchCase: 1,
           VariableDeclarator: 1,
           outerIIFEBody: 1,
-          FunctionDeclaration: {parameters: 1, body: 1},
-          FunctionExpression: {parameters: 1, body: 1},
-          CallExpression: {arguments: 1},
+          FunctionDeclaration: { parameters: 1, body: 1 },
+          FunctionExpression: { parameters: 1, body: 1 },
+          CallExpression: { arguments: 1 },
           ArrayExpression: 1,
           ObjectExpression: 1
         }
       ],
-      'quotes': [
+      quotes: [
         'error',
         'single',
         {
@@ -139,13 +132,13 @@ module.exports = [
           allowTemplateLiterals: true
         }
       ],
-      'semi': ['error', 'always'],
+      semi: ['error', 'always'],
       'comma-dangle': ['error', 'never'],
-      'brace-style': ['error', '1tbs', {allowSingleLine: true}],
+      'brace-style': ['error', '1tbs', { allowSingleLine: true }],
       'space-before-blocks': 'error',
-      'keyword-spacing': ['error', {before: true, after: true}],
+      'keyword-spacing': ['error', { before: true, after: true }],
       'space-infix-ops': 'error',
-      'space-unary-ops': ['error', {words: true, nonwords: false}],
+      'space-unary-ops': ['error', { words: true, nonwords: false }],
       'object-curly-spacing': ['error', 'always'],
       'array-bracket-spacing': ['error', 'never'],
       'computed-property-spacing': ['error', 'never'],
@@ -160,12 +153,12 @@ module.exports = [
           maxBOF: 0
         }
       ],
-      'comma-spacing': ['error', {before: false, after: true}],
-      'key-spacing': ['error', {beforeColon: false, afterColon: true}],
-      'semi-spacing': ['error', {before: false, after: true}],
+      'comma-spacing': ['error', { before: false, after: true }],
+      'key-spacing': ['error', { beforeColon: false, afterColon: true }],
+      'semi-spacing': ['error', { before: false, after: true }],
 
       // Function Rules
-      'func-style': ['error', 'declaration', {allowArrowFunctions: true}],
+      'func-style': ['error', 'declaration', { allowArrowFunctions: true }],
       'max-params': ['warn', 6],
       'max-len': [
         'warn',
@@ -178,7 +171,7 @@ module.exports = [
           ignoreRegExpLiterals: true
         }
       ],
-      'complexity': ['warn', 13],
+      complexity: ['warn', 13],
       'max-depth': ['warn', 4],
       'max-nested-callbacks': ['warn', 4],
       'max-statements': ['warn', 100],
@@ -199,7 +192,7 @@ module.exports = [
       'no-caller': 'error',
       'no-case-declarations': 'error',
       'no-else-return': 'error',
-      'no-empty-function': ['error', {allow: ['constructors']}],
+      'no-empty-function': ['error', { allow: ['constructors'] }],
       'no-empty-pattern': 'error',
       'no-fallthrough': 'error',
       'no-floating-decimal': 'error',
@@ -221,7 +214,7 @@ module.exports = [
       'no-new-func': 'error',
       'no-new-wrappers': 'error',
       'no-octal-escape': 'error',
-      'no-param-reassign': ['error', {props: false}],
+      'no-param-reassign': ['error', { props: false }],
       'no-return-assign': 'error',
       'no-return-await': 'error',
       'no-self-assign': 'error',
@@ -236,9 +229,9 @@ module.exports = [
       'no-useless-return': 'error',
       'no-void': 'error',
       'prefer-promise-reject-errors': 'error',
-      'radix': 'error',
+      radix: 'error',
       'require-await': 'error',
-      'yoda': 'error',
+      yoda: 'error',
 
       // JSDoc Rules (important for Apps Script documentation)
       'jsdoc/check-alignment': 'error',
@@ -327,7 +320,7 @@ module.exports = [
       'no-unused-vars': 'off',
       'no-redeclare': 'off', // Allow redeclaring imported functions for testing
       'no-undef': 'off', // Keep this to catch actual undefined variables
-      'complexity': 'off'
+      complexity: 'off'
     }
   },
 

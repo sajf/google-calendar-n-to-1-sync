@@ -86,7 +86,9 @@ class SyncStateManager {
 
     // If the change originated from the target calendar and we're about to sync back
     if (recentChange.originCalendarId === targetCalendarId && timeDiff < this.loopDetectionWindow) {
-      console.log(`Loop detected: ${sourceCalendarId} -> ${targetCalendarId} for event ${eventId}, operation ${operation}`);
+      console.log(
+        `Loop detected: ${sourceCalendarId} -> ${targetCalendarId} for event ${eventId}, operation ${operation}`
+      );
       return true;
     }
 
@@ -240,7 +242,7 @@ let syncStateManager;
 /**
  * Gets or creates the global sync state manager
  */
- 
+
 /**
  *
  */
@@ -254,7 +256,7 @@ function getSyncStateManager() {
 /**
  * Resets the sync state manager (useful for testing)
  */
- 
+
 /**
  *
  */

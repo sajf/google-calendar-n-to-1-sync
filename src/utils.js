@@ -812,11 +812,7 @@ function deleteEventSafe(calendarId, eventId) {
       throw new Error('Calendar API not available');
     }
 
-    return safeCalendarApiCall(
-      CalendarEvents.remove,
-      [calendarId, eventId],
-      `DELETE_EVENT_${calendarId}_${eventId}`
-    );
+    return safeCalendarApiCall(CalendarEvents.remove, [calendarId, eventId], `DELETE_EVENT_${calendarId}_${eventId}`);
   } catch (error) {
     if (error.message && error.message.includes('Not Found')) {
       console.log(`Attempt to delete event ${eventId}, which no longer exists.`);
@@ -923,7 +919,7 @@ function getSyncMetadata(event) {
 
 // For Node.js testing environment
 if (typeof module !== 'undefined') {
-// eslint-disable-next-line no-undef
+  // eslint-disable-next-line no-undef
   module.exports = {
     getAllEventsIncludingDeleted,
     getAllEventsIncludingDeletedSafe,
